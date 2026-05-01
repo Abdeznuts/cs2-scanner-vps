@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS2 Deal Scanner</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg2:#141414;--bg3:#1e1e1e;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.14);
+  --text:#f0f0f0;--text2:#999;--text3:#555;
+  --green:#22c55e;--green-bg:rgba(34,197,94,0.1);--green-border:rgba(34,197,94,0.2);
+  --amber:#f59e0b;--amber-bg:rgba(245,158,11,0.1);--amber-border:rgba(245,158,11,0.2);
+  --red:#ef4444;--red-bg:rgba(239,68,68,0.1);--red-border:rgba(239,68,68,0.2);
+  --blue:#3b82f6;--blue-bg:rgba(59,130,246,0.1);--blue-border:rgba(59,130,246,0.2);
+  --purple:#a855f7;--purple-bg:rgba(168,85,247,0.1);
+  --r:10px;--r-sm:6px;--r-xs:4px
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;min-height:100vh}
+.app{max-width:1100px;margin:0 auto;padding:1.5rem}
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:0.5px solid var(--border)}
+.hdr-left h1{font-size:20px;font-weight:600;letter-spacing:-0.3px}
+.hdr-left p{font-size:12px;color:var(--text2);margin-top:3px}
+.hdr-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{border:0.5px solid var(--border2);background:transparent;color:var(--text);border-radius:var(--r-sm);padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer;transition:background 0.15s;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.btn:hover{background:var(--bg3)}
+.btn.primary{background:var(--green);color:#000;border-color:transparent}
+.btn.primary:hover{opacity:0.85}
+.btn.danger{background:var(--red);color:#fff;border-color:transparent}
+.btn.danger:hover{opacity:0.85}
+.btn.amber{background:var(--amber);color:#000;border-color:transparent}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.scanning .dot{animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+/* Status bar */
+.status-bar{border-radius:var(--r);padding:0.75rem 1rem;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:13px}
+.status-bar.ok{background:var(--bg2);border:0.5px solid var(--border)}
+.status-bar.cooling{background:var(--amber-bg);border:0.5px solid var(--amber-border)}
+.status-bar.ready{background:var(--green-bg);border:0.5px solid var(--green-border)}
+.status-bar .sb-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.status-bar .sb-label{font-weight:500}
+.status-bar.cooling .sb-label{color:var(--amber)}
+.status-bar.ready .sb-label{color:var(--green)}
+.status-bar .sb-detail{font-size:12px;color:var(--text2)}
+.status-bar.cooling .sb-detail{color:var(--amber);opacity:0.8}
+.pill{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:500;background:var(--bg3);color:var(--text2);border:0.5px solid var(--border)}
+.pill.active{background:var(--green-bg);color:var(--green);border-color:var(--green-border)}
+.pill.scanning{background:var(--amber-bg);color:var(--amber);border-color:var(--amber-border)}
+.pill.error{background:var(--red-bg);color:var(--red);border-color:var(--red-border)}
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:1.25rem;border-bottom:0.5px solid var(--border)}
+.tab{padding:8px 16px;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-0.5px;transition:color 0.15s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--text);border-bottom-color:var(--green)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+/* Settings */
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:1.25rem;margin-bottom:1.25rem}
+.sg-group label{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);display:block;margin-bottom:6px}
+.sg-group input[type=range]{width:100%;accent-color:var(--green);cursor:pointer}
+.sg-group select,.sg-group input[type=number],.sg-group input[type=text],.sg-group textarea{width:100%;background:var(--bg3);color:var(--text);border:0.5px solid var(--border2);border-radius:var(--r-sm);padding:6px 10px;font-size:13px}
+.sg-group textarea{resize:vertical;min-height:80px;font-family:inherit}
+.sg-val{font-size:13px;font-weight:500;color:var(--text);margin-top:4px}
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:1.25rem}
+.stat{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:0.875rem 1rem}
+.stat-lbl{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:5px}
+.stat-val{font-size:22px;font-weight:600;color:var(--text)}
+.stat-val.g{color:var(--green)}.stat-val.a{color:var(--amber)}.stat-val.b{color:var(--blue)}
+/* Alert */
+.alert-banner{background:var(--green-bg);border:0.5px solid var(--green-border);border-radius:var(--r-sm);padding:0.75rem 1rem;margin-bottom:1rem;font-size:13px;color:var(--green);display:none}
+/* Deal cards */
+.deal-card{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:1.25rem;margin-bottom:10px;transition:border-color 0.15s}
+.deal-card:hover{border-color:var(--border2)}
+.deal-card.validated{border-left:2px solid var(--green)}
+.deal-card.unvalidated{border-left:2px solid var(--blue)}
+.deal-card.pending{border-left:2px solid var(--amber)}
+.deal-top{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;margin-bottom:10px}
+.deal-name{font-size:15px;font-weight:500;margin-bottom:4px}
+.deal-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.tag{font-size:11px;padding:2px 8px;border-radius:var(--r-xs);font-weight:500}
+.tag.validated{background:var(--green-bg);color:var(--green);border:0.5px solid var(--green-border)}
+.tag.unvalidated{background:var(--blue-bg);color:var(--blue);border:0.5px solid var(--blue-border)}
+.tag.pending{background:var(--amber-bg);color:var(--amber);border:0.5px solid var(--amber-border)}
+.tag.cached{background:var(--bg3);color:var(--text2);border:0.5px solid var(--border)}
+.tag.condition{background:var(--bg3);color:var(--text2);border:0.5px solid var(--border)}
+.deal-score-badge{text-align:center;min-width:70px}
+.score-num{font-size:28px;font-weight:700}
+.score-num.strong{color:var(--green)}.score-num.maybe{color:var(--amber)}.score-num.weak{color:var(--red)}.score-num.unval{color:var(--blue)}
+.score-lbl{font-size:11px;color:var(--text2);margin-top:2px}
+/* Ladder */
+.ladder{background:var(--bg3);border-radius:var(--r-sm);padding:0.875rem;margin-bottom:10px}
+.ladder-title{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);margin-bottom:8px}
+.ladder-rows{display:flex;flex-direction:column;gap:4px}
+.ladder-row{display:flex;align-items:center;gap:8px;font-size:13px}
+.ladder-row.target{color:var(--green);font-weight:600}
+.ladder-row .lr-rank{width:20px;color:var(--text3);font-size:11px}
+.ladder-row .lr-price{min-width:70px;font-weight:500}
+.ladder-row .lr-gap{font-size:11px;color:var(--text2)}
+.ladder-row .lr-float{font-size:11px;color:var(--text3);margin-left:auto}
+/* Profit */
+.profit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px}
+.profit-cell{background:var(--bg3);border-radius:var(--r-sm);padding:0.625rem 0.75rem}
+.profit-cell .pc-lbl{font-size:11px;color:var(--text2);margin-bottom:3px}
+.profit-cell .pc-val{font-size:15px;font-weight:600}
+.profit-cell .pc-val.g{color:var(--green)}.profit-cell .pc-val.r{color:var(--red)}.profit-cell .pc-val.a{color:var(--amber)}
+.net-profit-bar{border-radius:var(--r-sm);padding:0.875rem 1rem;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.net-profit-bar.validated{background:var(--bg3);border:0.5px solid var(--green-border)}
+.net-profit-bar.unvalidated{background:var(--blue-bg);border:0.5px solid var(--blue-border)}
+.net-profit-bar .np-label{font-size:12px;color:var(--text2)}
+.net-profit-bar.unvalidated .np-label{color:var(--blue);opacity:0.9}
+.net-profit-bar .np-value{font-size:22px;font-weight:700}
+.net-profit-bar.validated .np-value{color:var(--green)}
+.net-profit-bar.unvalidated .np-value{color:var(--blue)}
+.net-profit-bar .np-pct{font-size:13px;color:var(--text2);margin-left:8px}
+/* Warnings */
+.warnings{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.warning{font-size:12px;padding:4px 10px;border-radius:var(--r-xs);background:var(--amber-bg);color:var(--amber);border:0.5px solid var(--amber-border)}
+.warning.danger{background:var(--red-bg);color:var(--red);border-color:var(--red-border)}
+.warning.info{background:var(--blue-bg);color:var(--blue);border-color:var(--blue-border)}
+/* Liquidity */
+.liq{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:3px 8px;border-radius:var(--r-xs)}
+.liq.high{background:var(--green-bg);color:var(--green)}
+.liq.medium{background:var(--amber-bg);color:var(--amber)}
+.liq.low{background:var(--red-bg);color:var(--red)}
+/* Review bar */
+.review-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:10px;border-top:0.5px solid var(--border)}
+.review-btn{font-size:12px;padding:5px 14px;border-radius:var(--r-sm);border:0.5px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-weight:500;transition:all 0.15s}
+.review-btn:hover{background:var(--bg3);color:var(--text)}
+.review-btn.buy{border-color:var(--green-border);color:var(--green)}
+.review-btn.skip{border-color:var(--red-border);color:var(--red)}
+.review-btn.validate-btn{border-color:var(--blue-border);color:var(--blue)}
+.review-btn.active-buy{background:var(--green-bg);color:var(--green);border-color:var(--green)}
+.review-btn.active-skip{background:var(--red-bg);color:var(--red);border-color:var(--red)}
+.review-btn.active-review{background:var(--amber-bg);color:var(--amber);border-color:var(--amber)}
+.deal-link{font-size:12px;color:var(--blue);text-decoration:none;padding:5px 10px;border:0.5px solid var(--blue-border);border-radius:var(--r-sm);background:var(--blue-bg)}
+/* Misc */
+.empty{text-align:center;padding:4rem 1rem;color:var(--text2)}
+.empty .icon{font-size:32px;margin-bottom:12px}
+.log-wrap{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:0.875rem 1rem;font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:var(--text2);max-height:500px;overflow-y:auto}
+.log-line{padding:2px 0;border-bottom:0.5px solid var(--border)}
+.log-line:last-child{border-bottom:none}
+.log-line .lt{color:var(--text3);margin-right:8px}
+.log-line.s .lm{color:var(--green)}.log-line.e .lm{color:var(--red)}.log-line.i .lm{color:var(--blue)}.log-line.w .lm{color:var(--amber)}
+.hist-table{width:100%;border-collapse:collapse;font-size:13px}
+.hist-table th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text2);padding:8px 12px;border-bottom:0.5px solid var(--border);font-weight:500}
+.hist-table td{padding:10px 12px;border-bottom:0.5px solid var(--border);color:var(--text)}
+.hist-table tr:last-child td{border-bottom:none}
+.badge{font-size:11px;padding:2px 8px;border-radius:var(--r-xs);font-weight:500}
+.badge.buy{background:var(--green-bg);color:var(--green)}.badge.skip{background:var(--red-bg);color:var(--red)}.badge.review{background:var(--amber-bg);color:var(--amber)}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <div class="hdr-left">
+      <h1>CS2 Deal Scanner</h1>
+      <p>Skinport broad scan &middot; CSFloat validation &middot; cooldown-aware &middot; real net profit</p>
+    </div>
+    <div class="hdr-right">
+      <span class="pill" id="statusPill">idle</span>
+      <button class="btn" onclick="clearDeals()">Clear</button>
+      <button class="btn primary scanning" id="scanBtn" onclick="toggleScan()">
+        <span class="dot"></span>
+        <span id="scanLabel">Start scanning</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="status-bar ok" id="cfStatusBar">
+    <div class="sb-left">
+      <span class="sb-label" id="cfStatusLabel">CSFloat ready</span>
+      <span class="sb-detail" id="cfStatusDetail">0/20 calls used this hour</span>
+    </div>
+    <button class="btn" id="cfResetBtn" onclick="resetCooldown()" style="display:none;font-size:12px;padding:5px 12px">Reset cooldown</button>
+  </div>
+
+  <div class="alert-banner" id="alertBanner"></div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('scanner')">Scanner</div>
+    <div class="tab" onclick="switchTab('watchlist')">Watchlist</div>
+    <div class="tab" onclick="switchTab('settings')">Settings</div>
+    <div class="tab" onclick="switchTab('history')">History <span id="histCount" style="font-size:11px;color:var(--text2)"></span></div>
+    <div class="tab" onclick="switchTab('log')">Log</div>
+  </div>
+
+  <div class="tab-content active" id="tab-scanner">
+    <div class="stats">
+      <div class="stat"><div class="stat-lbl">Skinport candidates</div><div class="stat-val b" id="sCandidates">0</div></div>
+      <div class="stat"><div class="stat-lbl">Validated deals</div><div class="stat-val g" id="sDeals">0</div></div>
+      <div class="stat"><div class="stat-lbl">Unvalidated (SP only)</div><div class="stat-val b" id="sUnval">0</div></div>
+      <div class="stat"><div class="stat-lbl">Best net profit</div><div class="stat-val g" id="sProfit">—</div></div>
+      <div class="stat"><div class="stat-lbl">Scans run</div><div class="stat-val" id="sRuns">0</div></div>
+    </div>
+    <div style="display:flex;align-items:center;margin-bottom:0.75rem">
+      <span style="font-size:13px;font-weight:500">Live deals</span>
+    </div>
+    <div id="dealsContainer">
+      <div class="empty"><div class="icon">&#9675;</div><p>Start scanning</p></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-watchlist">
+    <div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:1.25rem;margin-bottom:1rem">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px">Watchlist</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">One item per line. Validated directly via CSFloat when budget allows.</div>
+      <textarea id="watchlistInput" placeholder="AK-47 | Redline (Field-Tested)&#10;AWP | Asiimov (Field-Tested)"></textarea>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <button class="btn primary" onclick="saveWatchlist()">Save watchlist</button>
+        <span id="watchlistSaved" style="font-size:12px;color:var(--green);display:none">Saved</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-settings">
+    <div class="settings-grid">
+      <div class="sg-group"><label>Min net profit (USD)</label><input type="number" id="cfg-minProfit" value="75" min="1" max="1000"></div>
+      <div class="sg-group"><label>Min profit %</label><input type="number" id="cfg-minProfitPct" value="7" min="1" max="50"></div>
+      <div class="sg-group"><label>Min Skinport discount %</label><input type="number" id="cfg-minDiscount" value="8" min="1" max="50"></div>
+      <div class="sg-group"><label>Min item value (USD)</label><input type="number" id="cfg-minValue" value="100" min="10" max="10000"></div>
+      <div class="sg-group"><label>Max item value (USD)</label><input type="number" id="cfg-maxValue" value="3000" min="100" max="50000"></div>
+      <div class="sg-group"><label>Selling fee %</label><input type="number" id="cfg-fee" value="8" min="0" max="20" step="0.5"></div>
+      <div class="sg-group"><label>Slippage buffer %</label><input type="number" id="cfg-slippage" value="4" min="0" max="15" step="0.5"></div>
+      <div class="sg-group"><label>Ladder depth</label><input type="number" id="cfg-depth" value="10" min="5" max="20"></div>
+      <div class="sg-group">
+        <label>Scan interval (seconds)</label>
+        <input type="range" id="cfg-interval" min="60" max="600" value="180" step="30" oninput="document.getElementById('cfg-intervalVal').textContent=this.value+'s'">
+        <div class="sg-val" id="cfg-intervalVal">180s</div>
+      </div>
+      <div class="sg-group"><label>Include StatTrak</label><select id="cfg-stattrak"><option value="no">No</option><option value="yes">Yes</option></select></div>
+      <div class="sg-group"><label>Pattern-based skins</label><select id="cfg-patterns"><option value="no">Exclude</option><option value="warn">Include with warning</option></select></div>
+      <div class="sg-group"><label>Min liquidity</label><select id="cfg-liquidity"><option value="high">High only</option><option value="medium" selected>Medium or higher</option><option value="low">All</option></select></div>
+      <div class="sg-group"><label>Sound alerts</label><select id="cfg-sound"><option value="on">Enabled</option><option value="off">Disabled</option></select></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-history">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn" onclick="clearHistory()">Clear history</button>
+    </div>
+    <div id="histContainer">
+      <div class="empty"><div class="icon">&#9675;</div><p>No reviewed deals yet</p></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-log">
+    <div class="log-wrap" id="logContainer">
+      <div class="log-line i"><span class="lt">--:--:--</span><span class="lm">Scanner ready</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var scanning=false, scanTimer=null, scanCount=0;
+var allDeals=[], dealHistory=[], watchlist=[], audioCtx=null;
+var cfCooling=false;
+
+var PATTERN_KEYS=['Case Hardened','Fade','Marble Fade','Doppler','Gamma Doppler','Tiger Tooth','Crimson Web','Lore','Emerald','Ruby','Sapphire','Black Pearl','Slaughter'];
+var ILLIQUID_KEYS=['Souvenir','Music Kit','Pin','Patch','Graffiti','Sticker','Agent'];
+var HIGH_DEMAND=['AK-47','M4A4','AWP','M4A1-S','Glock','USP-S','Desert Eagle','Knife','Karambit','Butterfly','Bayonet','M9 Bayonet','Flip Knife'];
+
+function cfgVal(id){var el=document.getElementById('cfg-'+id);if(!el)return 0;return el.type==='number'?parseFloat(el.value):el.value;}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function hasKw(n,list){return list.some(function(k){return n.indexOf(k)!==-1;});}
+function isPattern(n){return hasKw(n,PATTERN_KEYS);}
+function isIlliquid(n){return hasKw(n,ILLIQUID_KEYS);}
+function isStatTrak(n){return n.indexOf('StatTrak')!==-1;}
+function getCondition(n){var c=['Factory New','Minimal Wear','Field-Tested','Well-Worn','Battle-Scarred'];for(var i=0;i<c.length;i++)if(n.indexOf(c[i])!==-1)return c[i];return '';}
+function calcLiquidity(name,count){
+  if(isIlliquid(name))return 'low';
+  var pop=hasKw(name,HIGH_DEMAND);
+  if(count>=8&&pop)return 'high';
+  if(count>=5||pop)return 'medium';
+  return 'low';
+}
+
+function calcRealProfit(ladder,buyPrice,feeP,slippageP){
+  if(!ladder||ladder.length<2)return null;
+  var sorted=ladder.slice().sort(function(a,b){return a.price-b.price;});
+  var competitorPrice=sorted[1].price/100;
+  var resaleTarget=competitorPrice*0.99;
+  var slippageAmt=resaleTarget*slippageP;
+  var resaleAfterSlip=resaleTarget-slippageAmt;
+  var feeAmt=resaleAfterSlip*feeP;
+  var netProfit=resaleAfterSlip-feeAmt-buyPrice;
+  var profitPct=(netProfit/buyPrice)*100;
+  var sensitivity=(resaleTarget*0.01)/Math.max(0.01,Math.abs(netProfit));
+  return{resaleTarget,slippageAmt,feeAmt,netProfit,profitPct,sensitivity};
+}
+
+// Conservative Skinport-only estimate (no ladder)
+function calcSkinportProfit(candidate,feeP,slippageP){
+  var buyPrice=candidate.skinportPrice/100;
+  var suggested=candidate.suggestedPrice/100;
+  if(!suggested||suggested<=buyPrice)return null;
+  var resaleTarget=suggested*0.97; // conservative: 3% below suggested
+  var slippageAmt=resaleTarget*slippageP;
+  var resaleAfterSlip=resaleTarget-slippageAmt;
+  var feeAmt=resaleAfterSlip*feeP;
+  var netProfit=resaleAfterSlip-feeAmt-buyPrice;
+  var profitPct=(netProfit/buyPrice)*100;
+  return{resaleTarget,slippageAmt,feeAmt,netProfit,profitPct,isEstimate:true};
+}
+
+function buildWarnings(deal,ladder,profit){
+  var warns=[];
+  if(ladder&&ladder.length>1){
+    var prices=ladder.map(function(l){return l.price/100;});
+    var spread=((prices[prices.length-1]-prices[0])/prices[0])*100;
+    if(spread<8)warns.push({type:'danger',msg:'Tight ladder — gap likely to compress'});
+  }
+  if(profit&&profit.sensitivity>1.0)warns.push({type:'danger',msg:'Highly price-sensitive — 1% drop wipes most profit'});
+  else if(profit&&profit.sensitivity>0.5)warns.push({type:'warn',msg:'Profit sensitive to small price changes'});
+  if(isPattern(deal.name))warns.push({type:'warn',msg:'Pattern-based — verify float/seed manually'});
+  if(deal.liquidity==='low')warns.push({type:'warn',msg:'Low liquidity — may take weeks to sell'});
+  if(!ladder||ladder.length<5)warns.push({type:'info',msg:'Thin market — fewer listings, less reliable signal'});
+  if(isStatTrak(deal.name))warns.push({type:'info',msg:'StatTrak premium varies — verify demand'});
+  if(!profit)warns.push({type:'warn',msg:'No suggested price data — needs CSFloat validation to estimate profit'});
+  else if(profit.isEstimate)warns.push({type:'warn',msg:'Unvalidated — based on Skinport suggested price only'});
+  return warns;
+}
+
+function playSound(){
+  if(cfgVal('sound')!=='on')return;
+  try{
+    if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    var osc=audioCtx.createOscillator(),gain=audioCtx.createGain();
+    osc.connect(gain);gain.connect(audioCtx.destination);
+    osc.type='sine';
+    osc.frequency.setValueAtTime(660,audioCtx.currentTime);
+    osc.frequency.setValueAtTime(880,audioCtx.currentTime+0.08);
+    osc.frequency.setValueAtTime(1100,audioCtx.currentTime+0.16);
+    gain.gain.setValueAtTime(0.3,audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.6);
+    osc.start(audioCtx.currentTime);osc.stop(audioCtx.currentTime+0.6);
+  }catch(e){}
+}
+
+function addLog(msg,type){
+  var c=document.getElementById('logContainer');
+  var t=new Date().toLocaleTimeString('en-US',{hour12:false});
+  var l=document.createElement('div');
+  l.className='log-line'+(type?' '+type:'');
+  l.innerHTML='<span class="lt">'+t+'</span><span class="lm">'+esc(msg)+'</span>';
+  c.insertBefore(l,c.firstChild);
+  while(c.children.length>300)c.removeChild(c.lastChild);
+}
+
+function setStatus(text,type){var p=document.getElementById('statusPill');p.textContent=text;p.className='pill'+(type?' '+type:'');}
+function showAlert(msg){var el=document.getElementById('alertBanner');el.textContent='⚡ '+msg;el.style.display='block';setTimeout(function(){el.style.display='none';},8000);}
+function switchTab(id){
+  document.querySelectorAll('.tab').forEach(function(t,i){var ids=['scanner','watchlist','settings','history','log'];t.classList.toggle('active',ids[i]===id);});
+  document.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  document.getElementById('tab-'+id).classList.add('active');
+}
+function saveWatchlist(){
+  var raw=document.getElementById('watchlistInput').value;
+  watchlist=raw.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+  var saved=document.getElementById('watchlistSaved');
+  saved.style.display='inline';
+  setTimeout(function(){saved.style.display='none';},2000);
+  addLog('Watchlist saved: '+watchlist.length+' items','i');
+}
+
+async function updateCFStatus(){
+  try{
+    var res=await fetch('/api/budget');
+    var b=await res.json();
+    cfCooling=b.cooling;
+    var bar=document.getElementById('cfStatusBar');
+    var label=document.getElementById('cfStatusLabel');
+    var detail=document.getElementById('cfStatusDetail');
+    var resetBtn=document.getElementById('cfResetBtn');
+    if(b.cooling){
+      bar.className='status-bar cooling';
+      label.textContent='CSFloat cooling down until '+b.cooldownEndsAt;
+      detail.textContent='Skinport scanning continues. CSFloat resumes after cooldown.';
+      resetBtn.style.display='flex';
+    } else if(b.nextCallInSeconds>0){
+      bar.className='status-bar ok';
+      label.textContent='CSFloat ready in '+b.nextCallInSeconds+'s';
+      detail.textContent=b.used+'/'+b.max+' calls used this hour';
+      resetBtn.style.display='none';
+    } else {
+      bar.className='status-bar ready';
+      label.textContent='CSFloat ready';
+      detail.textContent=b.used+'/'+b.max+' calls used this hour';
+      resetBtn.style.display='none';
+    }
+  }catch(e){}
+}
+
+async function resetCooldown(){
+  try{
+    await fetch('/api/budget/reset',{method:'POST'});
+    addLog('CSFloat cooldown manually reset','i');
+    await updateCFStatus();
+  }catch(e){}
+}
+
+async function runScan(){
+  var minVal=cfgVal('minValue'), maxVal=cfgVal('maxValue');
+  var minProfit=cfgVal('minProfit'), minProfitPct=cfgVal('minProfitPct');
+  var minDiscount=cfgVal('minDiscount');
+  var feeP=cfgVal('fee')/100, slippageP=cfgVal('slippage')/100;
+  var depth=parseInt(cfgVal('depth'));
+  var inclST=cfgVal('stattrak')==='yes';
+  var inclPat=cfgVal('patterns')==='warn';
+  var minLiq=cfgVal('liquidity');
+  var liqRank={'high':3,'medium':2,'low':1};
+
+  scanCount++;
+  document.getElementById('sRuns').textContent=scanCount;
+  setStatus('scanning...','scanning');
+  await updateCFStatus();
+
+  addLog('Scan #'+scanCount+' — $'+minVal+'-$'+maxVal+(cfCooling?' [CSFloat cooling]':''),'i');
+
+  try{
+    // Step 1: Skinport broad scan
+    var spRes=await fetch('/api/scan?min_price='+(minVal*100)+'&max_price='+(maxVal*100));
+    var candidates=await spRes.json();
+    candidates=Array.isArray(candidates)?candidates:[];
+
+    // Filter candidates
+    candidates=candidates.filter(function(c){
+      if(!c.name)return false;
+      if(isIlliquid(c.name))return false;
+      if(!inclST&&isStatTrak(c.name))return false;
+      if(!inclPat&&isPattern(c.name))return false;
+      if(c.suggestedPrice>0){
+        var disc=((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100;
+        return disc>=minDiscount;
+      }
+      return true;
+    });
+
+    // Sort by discount
+    candidates.sort(function(a,b){
+      var da=a.suggestedPrice>0?(b.suggestedPrice-b.skinportPrice)/b.suggestedPrice:0;
+      var db=b.suggestedPrice>0?(a.suggestedPrice-a.skinportPrice)/a.suggestedPrice:0;
+      return da-db;
+    });
+
+    document.getElementById('sCandidates').textContent=candidates.length;
+    addLog('Skinport: '+candidates.length+' candidates');
+
+    var newDeals=[];
+    var validatedCount=0;
+
+    // Step 2: If CSFloat not cooling, validate top candidates
+    if(!cfCooling){
+      var toValidate=candidates.slice(0,4);
+      addLog('Validating top '+toValidate.length+' with CSFloat...','i');
+      for(var i=0;i<toValidate.length;i++){
+        var c=toValidate[i];
+        await updateCFStatus();
+        if(cfCooling){addLog('CSFloat entered cooldown — switching to Skinport-only mode','w');break;}
+        addLog('Validating: '+c.name);
+        try{
+          var vRes=await fetch('/api/validate?market_hash_name='+encodeURIComponent(c.name)+'&depth='+depth);
+          var vData=await vRes.json();
+          await updateCFStatus();
+          if(vData.cooling){addLog('CSFloat cooling — stopping validation','w');cfCooling=true;break;}
+          if(vData.throttled){addLog('CSFloat throttled — waiting','w');break;}
+          var ladder=vData.data||[];
+          if(!ladder||ladder.length<2){addLog('No ladder for '+c.name);continue;}
+          ladder.sort(function(a,b){return a.price-b.price;});
+          var buyPrice=ladder[0].price/100;
+          var next1=ladder[1].price/100;
+          var gapPct=((next1-buyPrice)/buyPrice)*100;
+          var profit=calcRealProfit(ladder,buyPrice,feeP,slippageP);
+          if(!profit)continue;
+          var liq=calcLiquidity(c.name,ladder.length);
+          if(liqRank[liq]<liqRank[minLiq])continue;
+          var deal={id:'cf'+Date.now()+i,name:c.name,buyPrice,next1,gapPct,liquidity:liq,ladderCount:ladder.length,ladder:ladder.slice(0,8),profit,validated:true,fromCache:vData.fromCache,warnings:[],reviewState:null,timestamp:Date.now()};
+          deal.warnings=buildWarnings(deal,ladder,profit);
+          if(profit.netProfit>=minProfit&&profit.profitPct>=minProfitPct){
+            addLog('VALIDATED DEAL: '+c.name+' | net $'+profit.netProfit.toFixed(2),'s');
+            upsertDeal(deal);
+            validatedCount++;
+          }
+        }catch(e){addLog('Validation error: '+e.message,'e');}
+        if(i<toValidate.length-1)await sleep(1500);
+      }
+    }
+
+    // Step 3: Skinport-only fallback for remaining candidates
+    var remainingCandidates=candidates.slice(validatedCount,validatedCount+10);
+    var unvalCount=0;
+    remainingCandidates.forEach(function(c){
+      if(allDeals.find(function(d){return d.name===c.name&&d.validated;}))return;
+      var buyPrice=c.skinportPrice/100;
+      var profit=calcSkinportProfit(c,feeP,slippageP);
+      if(profit&&profit.netProfit<minProfit*0.5)return; // lower threshold for unvalidated
+      var liq=calcLiquidity(c.name,3);
+      if(liqRank[liq]<liqRank[minLiq])return;
+      var deal={id:'sp'+Date.now()+Math.random(),name:c.name,buyPrice,skinportPrice:c.skinportPrice,suggestedPrice:c.suggestedPrice,discountPct:c.suggestedPrice>0?((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100:0,liquidity:liq,profit,validated:false,warnings:[],reviewState:null,timestamp:Date.now()};
+      deal.warnings=buildWarnings(deal,null,profit);
+      upsertDeal(deal);
+      unvalCount++;
+    });
+
+    document.getElementById('sDeals').textContent=allDeals.filter(function(d){return d.validated;}).length;
+    document.getElementById('sUnval').textContent=allDeals.filter(function(d){return !d.validated;}).length;
+    var bestValidated=allDeals.filter(function(d){return d.validated&&d.profit;}).sort(function(a,b){return b.profit.netProfit-a.profit.netProfit;});
+    if(bestValidated.length)document.getElementById('sProfit').textContent='$'+bestValidated[0].profit.netProfit.toFixed(0);
+
+    if(validatedCount>0){showAlert(validatedCount+' validated deal'+(validatedCount>1?'s':'')+' found!');playSound();}
+
+    renderDeals();
+    setStatus(allDeals.length+' deal'+(allDeals.length!==1?'s':''),allDeals.length>0?'active':'');
+    addLog('Done — '+validatedCount+' validated, '+unvalCount+' Skinport-only','s');
+
+  }catch(err){
+    addLog('Error: '+err.message,'e');
+    setStatus('error','error');
+  }
+  await updateCFStatus();
+}
+
+function upsertDeal(deal){
+  var idx=allDeals.findIndex(function(d){return d.name===deal.name;});
+  if(idx>=0){
+    // Keep validated over unvalidated
+    if(deal.validated||!allDeals[idx].validated)allDeals[idx]=deal;
+  } else {
+    allDeals.push(deal);
+  }
+  // Sort: validated first, then by profit
+  allDeals.sort(function(a,b){
+    if(a.validated&&!b.validated)return -1;
+    if(!a.validated&&b.validated)return 1;
+    var ap=a.profit?a.profit.netProfit:0;
+    var bp=b.profit?b.profit.netProfit:0;
+    return bp-ap;
+  });
+}
+
+function renderDeals(){
+  var c=document.getElementById('dealsContainer');
+  if(!allDeals.length){c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Scanning for deals...</p></div>';return;}
+  c.innerHTML=allDeals.map(dealHTML).join('');
+}
+
+function dealHTML(d){
+  var p=d.profit;
+  var id=String(d.id).replace(/[^a-zA-Z0-9_-]/g,'_');
+  var condTag=getCondition(d.name)?'<span class="tag condition">'+getCondition(d.name)+'</span>':'';
+
+  if(!d.validated){
+    // Skinport-only unvalidated card
+    var disc=d.discountPct?d.discountPct.toFixed(1):'?';
+    var estProfit=p?p.netProfit.toFixed(2):'?';
+    var warns=(d.warnings||[]).map(function(w){return'<div class="warning '+w.type+'">'+esc(w.msg)+'</div>';}).join('');
+    return'<div class="deal-card unvalidated" id="card-'+id+'">'
+      +'<div class="deal-top"><div><div class="deal-name">'+esc(d.name)+'</div>'
+      +'<div class="deal-tags"><span class="tag unvalidated">Unvalidated</span>'+condTag+'<span class="liq '+d.liquidity+'">'+d.liquidity+' liq</span></div></div>'
+      +'<div class="deal-score-badge"><div class="score-num unval">~</div><div class="score-lbl">Estimate</div></div></div>'
+      +'<div class="net-profit-bar unvalidated">'
+      +'<div><div class="np-label">'+(p?'Skinport-only estimate (NOT validated) — based on suggested price':'No suggested price — needs CSFloat validation')+'</div></div>'
+      +'<div><span class="np-value">~$'+estProfit+'</span><span class="np-pct">~'+(p?p.profitPct.toFixed(1):'?')+'% ROI</span></div></div>'
+      +(warns?'<div class="warnings">'+warns+'</div>':'')
+      +'<div class="profit-grid">'
+      +'<div class="profit-cell"><div class="pc-lbl">Skinport price</div><div class="pc-val">$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
+      +'<div class="profit-cell"><div class="pc-lbl">Suggested price</div><div class="pc-val">$'+(d.suggestedPrice?( d.suggestedPrice/100).toFixed(2):'?')+'</div></div>'
+      +'<div class="profit-cell"><div class="pc-lbl">Discount</div><div class="pc-val a">'+disc+'%</div></div>'
+      +'</div>'
+      +'<div class="review-bar">'
+      +'<button class="review-btn validate-btn" onclick="validateNow(\''+esc(d.name)+'\',\''+id+'\')">Validate with CSFloat</button>'
+      +'<button class="review-btn skip" onclick="dismissDeal(\''+id+'\')">Dismiss</button>'
+      +'<a class="deal-link" href="https://skinport.com/market?search='+encodeURIComponent(d.name)+'" target="_blank" rel="noopener" style="margin-left:auto">Skinport</a>'
+      +'</div></div>';
+  }
+
+  // Validated card
+  var sc=d.score>=80?'strong':d.score>=60?'maybe':'weak';
+  var rows=(d.ladder||[]).map(function(l,i){
+    var price=(l.price/100).toFixed(2);
+    var gap=i>0?' (+'+((((l.price/100)-d.buyPrice)/d.buyPrice)*100).toFixed(1)+'%)':'';
+    var fv=l.item&&l.item.float_value?'<span class="lr-float">'+l.item.float_value.toFixed(4)+'</span>':'';
+    return'<div class="ladder-row'+(i===0?' target':'')+'"><span class="lr-rank">#'+(i+1)+'</span><span class="lr-price">$'+price+'</span><span class="lr-gap">'+(i===0?'buy':gap)+'</span>'+fv+'</div>';
+  }).join('');
+  var warns=(d.warnings||[]).map(function(w){return'<div class="warning '+w.type+'">'+esc(w.msg)+'</div>';}).join('');
+  var scoreLabel=d.score>=80?'Strong':d.score>=60?'Maybe':'Weak';
+  return'<div class="deal-card validated" id="card-'+id+'">'
+    +'<div class="deal-top"><div><div class="deal-name">'+esc(d.name)+'</div>'
+    +'<div class="deal-tags"><span class="tag validated">CSFloat validated</span>'+(d.fromCache?'<span class="tag cached">cached</span>':'')+condTag+'<span class="liq '+d.liquidity+'">'+d.liquidity+' liq</span></div></div>'
+    +'<div class="deal-score-badge"><div class="score-num '+sc+'">'+(d.score||'?')+'</div><div class="score-lbl">'+scoreLabel+'</div></div></div>'
+    +(rows?'<div class="ladder"><div class="ladder-title">Price ladder ('+d.ladderCount+' listings)</div><div class="ladder-rows">'+rows+'</div></div>':'')
+    +'<div class="profit-grid">'
+    +'<div class="profit-cell"><div class="pc-lbl">Buy price</div><div class="pc-val">$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
+    +'<div class="profit-cell"><div class="pc-lbl">Gap to #2</div><div class="pc-val g">+'+(d.gapPct?d.gapPct.toFixed(1):'?')+'%</div></div>'
+    +'<div class="profit-cell"><div class="pc-lbl">Resale target</div><div class="pc-val">$'+(p?p.resaleTarget.toFixed(2):'?')+'</div></div>'
+    +'<div class="profit-cell"><div class="pc-lbl">Fees+Slippage</div><div class="pc-val r">-$'+(p?(p.feeAmt+p.slippageAmt).toFixed(2):'?')+'</div></div>'
+    +'</div>'
+    +'<div class="net-profit-bar validated">'
+    +'<div><div class="np-label">Net profit after fees &amp; slippage (CSFloat validated)</div></div>'
+    +'<div><span class="np-value">$'+(p?p.netProfit.toFixed(2):'?')+'</span>'
+    +'<span class="np-pct">'+(p?p.profitPct.toFixed(1):'?')+'% ROI</span></div></div>'
+    +(warns?'<div class="warnings">'+warns+'</div>':'')
+    +'<div class="review-bar">'
+    +'<button class="review-btn buy'+(d.reviewState==='buy'?' active-buy':'')+'" onclick="mark(\''+id+'\',\'buy\')">BUY</button>'
+    +'<button class="review-btn'+(d.reviewState==='review'?' active-review':'')+'" onclick="mark(\''+id+'\',\'review\')">REVIEW</button>'
+    +'<button class="review-btn skip'+(d.reviewState==='skip'?' active-skip':'')+'" onclick="mark(\''+id+'\',\'skip\')">SKIP</button>'
+    +'<a class="deal-link" href="https://csfloat.com/market?search='+encodeURIComponent(d.name)+'" target="_blank" rel="noopener" style="margin-left:auto">CSFloat</a>'
+    +'<a class="deal-link" href="https://skinport.com/market?search='+encodeURIComponent(d.name)+'" target="_blank" rel="noopener" style="margin-left:4px">Skinport</a>'
+    +'</div></div>';
+}
+
+async function validateNow(name,safeId){
+  if(cfCooling){addLog('CSFloat still cooling — cannot validate now','w');return;}
+  addLog('Manual validation: '+name,'i');
+  var feeP=cfgVal('fee')/100,slippageP=cfgVal('slippage')/100,depth=parseInt(cfgVal('depth'));
+  try{
+    var res=await fetch('/api/validate?market_hash_name='+encodeURIComponent(name)+'&depth='+depth);
+    var data=await res.json();
+    await updateCFStatus();
+    if(data.cooling){addLog('CSFloat entered cooldown during validation','w');return;}
+    if(data.throttled){addLog('CSFloat throttled — try again in a moment','w');return;}
+    var ladder=data.data||[];
+    if(!ladder||ladder.length<2){addLog('No CSFloat ladder data for '+name,'w');return;}
+    ladder.sort(function(a,b){return a.price-b.price;});
+    var buyPrice=ladder[0].price/100;
+    var next1=ladder[1].price/100;
+    var gapPct=((next1-buyPrice)/buyPrice)*100;
+    var profit=calcRealProfit(ladder,buyPrice,feeP,slippageP);
+    if(!profit)return;
+    var liq=calcLiquidity(name,ladder.length);
+    var deal={id:'mv'+Date.now(),name,buyPrice,next1,gapPct,liquidity:liq,ladderCount:ladder.length,ladder:ladder.slice(0,8),profit,validated:true,fromCache:data.fromCache,warnings:[],reviewState:null,timestamp:Date.now()};
+    deal.warnings=buildWarnings(deal,ladder,profit);
+    upsertDeal(deal);
+    document.getElementById('sDeals').textContent=allDeals.filter(function(d){return d.validated;}).length;
+    document.getElementById('sUnval').textContent=allDeals.filter(function(d){return !d.validated;}).length;
+    addLog('Validated: '+name+' | net $'+profit.netProfit.toFixed(2)+(profit.netProfit>0?' ✓':' ✗'),'s');
+    renderDeals();
+  }catch(e){addLog('Error: '+e.message,'e');}
+}
+
+function dismissDeal(safeId){
+  allDeals=allDeals.filter(function(d){return String(d.id).replace(/[^a-zA-Z0-9_-]/g,'_')!==safeId;});
+  renderDeals();
+}
+
+function mark(safeId,state){
+  var deal=allDeals.find(function(d){return String(d.id).replace(/[^a-zA-Z0-9_-]/g,'_')===safeId;});
+  if(!deal)return;
+  deal.reviewState=state;
+  var card=document.getElementById('card-'+safeId);
+  if(card){
+    card.querySelectorAll('.review-btn').forEach(function(b){b.classList.remove('active-buy','active-skip','active-review');});
+    var btns=card.querySelectorAll('.review-btn');
+    if(state==='buy'&&btns[0])btns[0].classList.add('active-buy');
+    if(state==='review'&&btns[1])btns[1].classList.add('active-review');
+    if(state==='skip'&&btns[2])btns[2].classList.add('active-skip');
+  }
+  dealHistory.unshift(Object.assign({},deal,{reviewState:state,reviewTime:Date.now()}));
+  renderHistory();
+  addLog('Marked "'+deal.name+'" as '+state.toUpperCase()+(deal.validated?'':' (unvalidated)'),'i');
+}
+
+function renderHistory(){
+  document.getElementById('histCount').textContent='('+dealHistory.length+')';
+  var c=document.getElementById('histContainer');
+  if(!dealHistory.length){c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>No reviewed deals yet</p></div>';return;}
+  var rows=dealHistory.map(function(h){
+    var net=h.profit?'$'+h.profit.netProfit.toFixed(2):'—';
+    var roi=h.profit?h.profit.profitPct.toFixed(1)+'%':'—';
+    var valTag=h.validated?'<span style="color:var(--green);font-size:11px">validated</span>':'<span style="color:var(--blue);font-size:11px">estimate</span>';
+    return'<tr><td>'+esc(h.name)+'</td><td>$'+(h.buyPrice?h.buyPrice.toFixed(2):'—')+'</td><td>'+net+'</td><td>'+roi+'</td><td>'+valTag+'</td>'
+      +'<td><span class="badge '+h.reviewState+'">'+h.reviewState.toUpperCase()+'</span></td>'
+      +'<td style="color:var(--text2);font-size:12px">'+new Date(h.reviewTime).toLocaleTimeString()+'</td></tr>';
+  }).join('');
+  c.innerHTML='<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Item</th><th>Buy</th><th>Net profit</th><th>ROI</th><th>Source</th><th>Decision</th><th>Time</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+function clearDeals(){allDeals=[];renderDeals();document.getElementById('sDeals').textContent=0;document.getElementById('sUnval').textContent=0;document.getElementById('sProfit').textContent='—';}
+function clearHistory(){dealHistory=[];renderHistory();}
+
+function toggleScan(){
+  var btn=document.getElementById('scanBtn'),lbl=document.getElementById('scanLabel');
+  if(scanning){
+    scanning=false;clearTimeout(scanTimer);scanTimer=null;
+    btn.classList.remove('danger');btn.classList.add('primary');
+    lbl.textContent='Start scanning';
+    setStatus('paused','');addLog('Scanner paused');
+  }else{
+    scanning=true;
+    btn.classList.remove('primary');btn.classList.add('danger');
+    lbl.textContent='Stop scanning';
+    addLog('Scanner started','i');
+    function next(){
+      var iv=parseInt(document.getElementById('cfg-interval').value)*1000;
+      scanTimer=setTimeout(function(){if(scanning)runScan().then(next);},iv);
+    }
+    runScan().then(next);
+  }
+}
+
+setInterval(updateCFStatus, 15000);
+updateCFStatus();
+</script>
+</body>
+</html>
