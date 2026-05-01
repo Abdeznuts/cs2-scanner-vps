@@ -1,6 +1,7 @@
 require('dotenv').config();
 const http = require('http');
 const https = require('https');
+const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
@@ -128,7 +129,6 @@ async function skinportScan(minPriceCents, maxPriceCents) {
   console.log('[skinport] fetching $' + minUsd + '-$' + maxUsd);
 
   return new Promise(resolve => {
-    const zlib = require('zlib');
     https.get({
       hostname: 'api.skinport.com',
       path: '/v1/items?app_id=730&currency=USD&tradable=0',
@@ -219,6 +219,12 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
   try {
+    if (pathname === '/api/ping') {
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, version: 'skinport-proxy', node: process.version }));
+      return;
+    }
+
     if (pathname === '/api/scan') {
       const minPrice = parseFloat(query.min_price || '10000');
       const maxPrice = parseFloat(query.max_price || '300000');
