@@ -773,7 +773,7 @@ async function runScan(){
     var filtered=spItems.filter(function(c){
       if(!c.name)return false;
       if(isIlliquid(c.name))return false;
-      if(isStatTrak(c.name))return false;
+      if(!inclST&&isStatTrak(c.name))return false;
       if(isPattern(c.name)&&!inclPat)return false;
       if(!isWhitelisted(c.name))return false;
       if(c.suggestedPrice>0){var disc=((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100;return disc>=minDiscount;}

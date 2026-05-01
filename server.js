@@ -17,11 +17,11 @@ if (!CSFLOAT_KEY) {
 // ─── CSFloat rate limiter ─────────────────────────────────────────────────────
 const cfloat = {
   cooldownUntil: 0,
-  cooldownMins: 10,         // 10 min cooldown on 429
+  cooldownMins: 30,         // 30 min cooldown on 429 — CSFloat free tier exhausts fast
   lastCallTime: 0,
-  minIntervalMs: 120000,    // 2 min between calls
+  minIntervalMs: 300000,    // 5 min between calls
   used: 0,
-  maxPerHour: 20,
+  maxPerHour: 5,            // conservative — free tier likely ~10/day
   windowStart: Date.now(),
 
   isCooling() { return Date.now() < this.cooldownUntil; },
