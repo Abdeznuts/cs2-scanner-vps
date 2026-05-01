@@ -155,6 +155,19 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .reason-tag{font-size:10px;color:var(--text3);padding:2px 6px;border-radius:var(--r-xs);background:var(--bg3);border:0.5px solid var(--border)}
 .breakdown-bar-wrap{flex:1;background:var(--bg3);border-radius:2px;height:14px;overflow:hidden}
 .breakdown-bar{height:100%;border-radius:2px;opacity:0.75}
+/* Scan progress pipeline */
+.scan-progress{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:0.875rem 1rem;margin-bottom:0.75rem}
+.sp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.sp-stage{font-size:13px;font-weight:500;color:var(--text)}
+.sp-count{font-size:12px;color:var(--text2)}
+.sp-bar-wrap{height:3px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-bottom:8px}
+.sp-bar-fill{height:100%;background:var(--green);border-radius:2px;transition:width 0.35s ease;width:0%}
+.sp-feed{display:flex;flex-direction:column;gap:3px}
+.sp-line{font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px}
+.sp-line::before{content:'›';color:var(--text3);font-size:12px}
+.sp-line.ok::before{content:'✓';color:var(--green)}
+.sp-line.warn::before{content:'⚠';color:var(--amber)}
+.sp-line.info::before{content:'·';color:var(--text3)}
 /* Tier borders — color-coded for instant scanning */
 .tier-execute{border-left:4px solid #d4af37!important;background:rgba(212,175,55,0.03)!important}
 .tier-strong{border-left:4px solid var(--green)!important}
@@ -254,6 +267,14 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         <button class="btn" id="fReview" onclick="setFilter('review')" style="font-size:12px;padding:5px 12px">Strong + Review</button>
         <button class="btn" id="fAll" onclick="setFilter('all')" style="font-size:12px;padding:5px 12px">All</button>
       </div>
+    </div>
+    <div id="scanProgress" style="display:none" class="scan-progress">
+      <div class="sp-header">
+        <span class="sp-stage" id="spStage">Fetching listings…</span>
+        <span class="sp-count" id="spCount"></span>
+      </div>
+      <div class="sp-bar-wrap"><div class="sp-bar-fill" id="spFill"></div></div>
+      <div class="sp-feed" id="spFeed"></div>
     </div>
     <div id="dealsContainer">
       <div class="empty"><div class="icon">&#9675;</div><p>Start scanning</p></div>
@@ -652,6 +673,33 @@ async function resetCooldown(){
   }catch(e){}
 }
 
+var _spHideTimer=null;
+function setScanStage(label,pct,count){
+  var el=document.getElementById('scanProgress');
+  if(el)el.style.display='block';
+  var s=document.getElementById('spStage');if(s)s.textContent=label;
+  var f=document.getElementById('spFill');if(f)f.style.width=Math.min(100,pct)+'%';
+  var c=document.getElementById('spCount');if(c)c.textContent=count||'';
+}
+function addScanFeed(msg,type){
+  var feed=document.getElementById('spFeed');if(!feed)return;
+  var line=document.createElement('div');
+  line.className='sp-line'+(type?' '+type:'');
+  line.textContent=msg;
+  feed.insertBefore(line,feed.firstChild);
+  while(feed.children.length>6)feed.removeChild(feed.lastChild);
+}
+function endScanProgress(msg){
+  setScanStage(msg,100);
+  var f=document.getElementById('spFill');
+  if(f)f.style.background='var(--green)';
+  clearTimeout(_spHideTimer);
+  _spHideTimer=setTimeout(function(){
+    var el=document.getElementById('scanProgress');
+    if(el)el.style.display='none';
+  },5000);
+}
+
 async function runScan(){
   var minVal=cfgVal('minValue'), maxVal=cfgVal('maxValue');
   var minProfit=cfgVal('minProfit'), minProfitPct=cfgVal('minProfitPct');
@@ -670,25 +718,35 @@ async function runScan(){
   await updateCFStatus();
   addLog('Scan #'+scanCount+' — $'+minVal+'-$'+maxVal+(cfCooling?' [CSFloat cooling]':''),'i');
 
+  // Reset progress feed
+  var spFeed=document.getElementById('spFeed');if(spFeed)spFeed.innerHTML='';
+  setScanStage('Fetching Skinport listings…',8);
+
   try{
-    // Step 1: Skinport — browser calls API directly (home IP, no VPS rate limiting)
+    // Step 1: Skinport
     var spItems=await fetchSkinportDirect(minVal,maxVal);
+
+    addScanFeed('Fetched '+spItems.length+' listings','ok');
+    setScanStage('Filtering '+spItems.length+' listings…',22,spItems.length+' items');
 
     var filtered=spItems.filter(function(c){
       if(!c.name)return false;
       if(isIlliquid(c.name))return false;
-      if(isStatTrak(c.name))return false; // always exclude StatTrak
+      if(isStatTrak(c.name))return false;
       if(isPattern(c.name)&&!inclPat)return false;
       if(!isWhitelisted(c.name))return false;
       if(c.suggestedPrice>0){var disc=((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100;return disc>=minDiscount;}
       return true;
     });
 
-    // Track how many were hidden by whitelist (before other filters)
+    // Track how many were hidden by whitelist
     lastWlHidden=whitelistMode?spItems.filter(function(c){
       return c.name&&!isIlliquid(c.name)&&!isStatTrak(c.name)&&!isWhitelisted(c.name);
     }).length:0;
     document.getElementById('sWlHidden').textContent=lastWlHidden;
+
+    addScanFeed((lastWlHidden>0?lastWlHidden+' hidden by whitelist — ':'')+''+filtered.length+' passed initial filter',(filtered.length>0?'ok':'warn'));
+    setScanStage('Applying whitelist & discount filter…',38,filtered.length+' candidates');
     filtered.sort(function(a,b){
       var da=a.suggestedPrice>0?((a.suggestedPrice-a.skinportPrice)/a.suggestedPrice):0;
       var db=b.suggestedPrice>0?((b.suggestedPrice-b.skinportPrice)/b.suggestedPrice):0;
@@ -696,7 +754,8 @@ async function runScan(){
     });
     document.getElementById('sCandidates').textContent=filtered.length;
 
-    // Step 2: Aggressive pre-filter before touching the queue
+    // Step 2: Gap / profit / liquidity pre-filter
+    setScanStage('Evaluating gap, profit & liquidity…',52,filtered.length+' to evaluate');
     var QUEUE_MAX=50;
     var qualified=filtered.filter(function(c){
       if(allDeals.find(function(d){return d.name===c.name&&d.validated;}))return false;
@@ -710,6 +769,7 @@ async function runScan(){
       if(liqRank[liq]<liqRank['medium'])return false;
       return true;
     });
+    addScanFeed(qualified.length+' qualified (gap ≥10%, profit ≥CA$75, liq ≥medium)',(qualified.length>0?'ok':'warn'));
     addLog('Pre-filter: '+filtered.length+' → '+qualified.length+' passed gap/profit/liq checks');
 
     // Merge new qualified candidates into queue (no duplicates)
@@ -723,7 +783,9 @@ async function runScan(){
     if(validationQueue.length>QUEUE_MAX)validationQueue=validationQueue.slice(0,QUEUE_MAX);
 
     document.getElementById('sQueue').textContent=validationQueue.length;
+    addScanFeed('Queue: '+validationQueue.length+' pending CSFloat validation'+(cfCooling?' (CSFloat cooling)':''),'info');
     addLog('Queue: '+validationQueue.length+' high-quality candidates (cap '+QUEUE_MAX+')');
+    setScanStage(cfCooling?'CSFloat cooling — showing Skinport estimates…':'Validating top candidates with CSFloat…',68,validationQueue.length+' in queue');
 
     // Step 3: Validate up to 2 from the front of the queue
     var validatedCount=0;
@@ -791,9 +853,11 @@ async function runScan(){
     var bestV=allDeals.filter(function(d){return d.validated&&d.profit;}).sort(function(a,b){return b.profit.netProfit-a.profit.netProfit;});
     if(bestV.length)document.getElementById('sProfit').textContent='CA$'+bestV[0].profit.netProfit.toFixed(0);
 
+    setScanStage('Finalizing results…',90);
+    addScanFeed(validatedCount>0?validatedCount+' CSFloat validated':'No CSFloat validations this scan',(validatedCount>0?'ok':'info'));
+
     if(validatedCount>0){showAlert(validatedCount+' deal'+(validatedCount>1?'s':'')+' validated!');playSound();}
 
-    // Missed deal tracking: check if any active deals are gone from this scan's Skinport data
     if(scanCount>1)checkMissedDeals(spItems);
 
     renderDeals();
@@ -801,6 +865,9 @@ async function runScan(){
     var buySignals=allDeals.filter(function(d){return calcDealTier(d).buySignal;});
     if(buySignals.length){showAlert('BUY NOW signal: '+buySignals[0].name);playSound();}
     setStatus(allDeals.length+' deal'+(allDeals.length!==1?'s':''),allDeals.length>0?'active':'');
+    var totalVisible=allDeals.filter(function(d){return d.validated||(d.profit&&d.profit.netProfit>=75);}).length;
+    endScanProgress('Scan complete — '+totalVisible+' qualified deal'+(totalVisible!==1?'s':''));
+    addScanFeed('Done: '+validatedCount+' validated, '+validationQueue.length+' queued, '+totalVisible+' shown','ok');
     addLog('Done — '+validatedCount+' validated, '+validationQueue.length+' queued','s');
 
   }catch(err){
@@ -1551,6 +1618,7 @@ function toggleScan(){
     btn.classList.remove('danger');btn.classList.add('primary');
     lbl.textContent='Start scanning';
     setStatus('paused','');addLog('Scanner paused');
+    var spEl=document.getElementById('scanProgress');if(spEl)spEl.style.display='none';
   }else{
     scanning=true;
     btn.classList.remove('primary');btn.classList.add('danger');
