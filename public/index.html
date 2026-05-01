@@ -379,6 +379,8 @@ var filterMode='review';
 var openTrades=[];
 var closedTrades=[];
 var compactMode=false;
+var scanComplete=false;
+var lastScanSummary=null;
 var whitelistMode=true;
 var lastWlHidden=0;
 
@@ -689,15 +691,21 @@ function addScanFeed(msg,type){
   feed.insertBefore(line,feed.firstChild);
   while(feed.children.length>6)feed.removeChild(feed.lastChild);
 }
-function endScanProgress(msg){
+function endScanProgress(msg,hasDeals){
   setScanStage(msg,100);
   var f=document.getElementById('spFill');
   if(f)f.style.background='var(--green)';
+  scanComplete=true;
+  lastScanSummary=msg;
   clearTimeout(_spHideTimer);
-  _spHideTimer=setTimeout(function(){
-    var el=document.getElementById('scanProgress');
-    if(el)el.style.display='none';
-  },5000);
+  if(hasDeals){
+    // Deals are visible below — progress block is redundant after a few seconds
+    _spHideTimer=setTimeout(function(){
+      var el=document.getElementById('scanProgress');
+      if(el)el.style.display='none';
+    },5000);
+  }
+  // No deals: keep progress block visible — it IS the summary the user sees
 }
 
 async function runScan(){
@@ -712,6 +720,8 @@ async function runScan(){
   var liqRank={'high':3,'medium':2,'low':1};
   var cadRate=parseFloat(cfgVal('cadRate'))||USD_TO_CAD;
 
+  scanComplete=false;
+  lastScanSummary=null;
   scanCount++;
   document.getElementById('sRuns').textContent=scanCount;
   setStatus('scanning...','scanning');
@@ -866,7 +876,7 @@ async function runScan(){
     if(buySignals.length){showAlert('BUY NOW signal: '+buySignals[0].name);playSound();}
     setStatus(allDeals.length+' deal'+(allDeals.length!==1?'s':''),allDeals.length>0?'active':'');
     var totalVisible=allDeals.filter(function(d){return d.validated||(d.profit&&d.profit.netProfit>=75);}).length;
-    endScanProgress('Scan complete — '+totalVisible+' qualified deal'+(totalVisible!==1?'s':''));
+    endScanProgress('Scan complete — '+totalVisible+' qualified deal'+(totalVisible!==1?'s':''),totalVisible>0);
     addScanFeed('Done: '+validatedCount+' validated, '+validationQueue.length+' queued, '+totalVisible+' shown','ok');
     addLog('Done — '+validatedCount+' validated, '+validationQueue.length+' queued','s');
 
@@ -1152,8 +1162,16 @@ function renderDeals(){
   var validated=allDeals.filter(function(d){return d.validated&&tierFilter(d);});
   var unvalidated=allDeals.filter(function(d){return !d.validated&&tierFilter(d);});
   if(!validated.length&&!unvalidated.length){
-    var emptyMsg=allDeals.length?'No deals match the current filter — try "Strong + Review" or "All"':'Scanning for deals...';
-    c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>'+emptyMsg+'</p></div>';return;
+    if(allDeals.length){
+      c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>No deals match the current filter — try "Strong + Review" or "All"</p></div>';
+    } else if(scanComplete&&lastScanSummary){
+      c.innerHTML='<div class="empty"><div class="icon" style="color:var(--green)">&#10003;</div><p>'+esc(lastScanSummary)+'<br><span style="font-size:12px;color:var(--text3)">Adjust filters or wait for next scan</span></p></div>';
+    } else if(!scanning){
+      c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Start scanning to find deals</p></div>';
+    } else {
+      c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Scanning&#8230;</p></div>';
+    }
+    return;
   }
   var html='';
   if(validated.length){
@@ -1608,7 +1626,7 @@ function toggleWhitelist(){
   setWhitelistMode(newState);
 }
 
-function clearDeals(){allDeals=[];validationQueue=[];renderDeals();document.getElementById('sDeals').textContent=0;document.getElementById('sCandidates').textContent=0;document.getElementById('sQueue').textContent=0;document.getElementById('sWlHidden').textContent=0;document.getElementById('sProfit').textContent='—';}
+function clearDeals(){allDeals=[];validationQueue=[];scanComplete=false;lastScanSummary=null;renderDeals();document.getElementById('sDeals').textContent=0;document.getElementById('sCandidates').textContent=0;document.getElementById('sQueue').textContent=0;document.getElementById('sWlHidden').textContent=0;document.getElementById('sProfit').textContent='—';}
 function clearHistory(){dealHistory=[];renderHistory();}
 
 function toggleScan(){
