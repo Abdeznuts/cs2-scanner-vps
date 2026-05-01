@@ -156,7 +156,9 @@ async function skinportScan(minPriceCents, maxPriceCents) {
             .map(i => ({
               name: i.market_hash_name,
               skinportPrice: Math.round(i.min_price * 100),
-              suggestedPrice: Math.round((i.suggested_price || i.median_sale_price || 0) * 100),
+              ladderMean: Math.round((i.mean_price || 0) * 100),
+              ladderMax: Math.round((i.max_price || 0) * 100),
+              suggestedPrice: Math.round((i.suggested_price || 0) * 100),
               quantity: i.quantity
             }));
           setCache(freshKey, candidates);
