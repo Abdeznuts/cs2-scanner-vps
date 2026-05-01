@@ -149,6 +149,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .hist-table tr:last-child td{border-bottom:none}
 .badge{font-size:11px;padding:2px 8px;border-radius:var(--r-xs);font-weight:500}
 .badge.buy{background:var(--green-bg);color:var(--green)}.badge.skip{background:var(--red-bg);color:var(--red)}.badge.review{background:var(--amber-bg);color:var(--amber)}
+.section-hdr{display:flex;align-items:center;gap:8px;margin-bottom:0.75rem;padding-bottom:6px;border-bottom:0.5px solid var(--border)}
+.section-hdr+.section-hdr,.deal-card+.section-hdr{margin-top:1.5rem}
+.section-title{font-size:13px;font-weight:600;color:var(--text)}
+.section-count{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg3);color:var(--text2);font-weight:500}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 </style>
 </head>
@@ -173,7 +177,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div class="sb-left">
       <span class="sb-label" id="cfStatusLabel">CSFloat ready</span>
       <span class="sb-detail" id="cfStatusDetail">0/20 calls used this hour</span>
-      <span class="sb-detail" id="spStatusDetail" style="display:none;margin-left:10px"></span>
     </div>
     <button class="btn" id="cfResetBtn" onclick="resetCooldown()" style="display:none;font-size:12px;padding:5px 12px">Reset cooldown</button>
   </div>
@@ -190,9 +193,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
   <div class="tab-content active" id="tab-scanner">
     <div class="stats">
-      <div class="stat"><div class="stat-lbl">Skinport candidates</div><div class="stat-val b" id="sCandidates">0</div></div>
+      <div class="stat"><div class="stat-lbl">SP candidates</div><div class="stat-val b" id="sCandidates">0</div></div>
       <div class="stat"><div class="stat-lbl">Validated deals</div><div class="stat-val g" id="sDeals">0</div></div>
-      <div class="stat"><div class="stat-lbl">Unvalidated (SP only)</div><div class="stat-val b" id="sUnval">0</div></div>
+      <div class="stat"><div class="stat-lbl">Pending queue</div><div class="stat-val a" id="sQueue">0</div></div>
       <div class="stat"><div class="stat-lbl">Best net profit</div><div class="stat-val g" id="sProfit">—</div></div>
       <div class="stat"><div class="stat-lbl">Scans run</div><div class="stat-val" id="sRuns">0</div></div>
     </div>
@@ -257,7 +260,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <script>
 var scanning=false, scanTimer=null, scanCount=0;
 var allDeals=[], dealHistory=[], watchlist=[], audioCtx=null;
-var cfCooling=false, pauseUntilMs=0, lastBudget=null;
+var cfCooling=false;
+var validationQueue=[];
+var spCache={data:null,timestamp:0};
+var SP_CACHE_TTL=15*60*1000;
 
 var PATTERN_KEYS=['Case Hardened','Fade','Marble Fade','Doppler','Gamma Doppler','Tiger Tooth','Crimson Web','Lore','Emerald','Ruby','Sapphire','Black Pearl','Slaughter'];
 var ILLIQUID_KEYS=['Souvenir','Music Kit','Pin','Patch','Graffiti','Sticker','Agent'];
@@ -367,46 +373,63 @@ function saveWatchlist(){
   addLog('Watchlist saved: '+watchlist.length+' items','i');
 }
 
-async function updateCFStatus(scanSource){
+async function updateCFStatus(){
   try{
     var res=await fetch('/api/budget');
     var b=await res.json();
-    lastBudget=b;
-    var cf=b.csfloat||b;
-    var sp=b.skinport||{cooling:false};
-    cfCooling=cf.cooling;
+    cfCooling=b.cooling;
     var bar=document.getElementById('cfStatusBar');
     var label=document.getElementById('cfStatusLabel');
     var detail=document.getElementById('cfStatusDetail');
     var resetBtn=document.getElementById('cfResetBtn');
-    var spDetail=document.getElementById('spStatusDetail');
-    if(cf.cooling){
+    var queued=validationQueue.length;
+    if(b.cooling){
       bar.className='status-bar cooling';
-      label.textContent='CSFloat cooling until '+cf.cooldownEndsAt;
-      detail.textContent='Validation paused.';
+      label.textContent='CSFloat cooling until '+b.cooldownEndsAt;
+      detail.textContent=queued+' item'+(queued!==1?'s':'')+' queued for validation';
       resetBtn.style.display='flex';
-    } else if(cf.nextCallInSeconds>0){
+    } else if(b.nextCallInSeconds>0){
       bar.className='status-bar ok';
-      label.textContent='CSFloat ready in '+cf.nextCallInSeconds+'s';
-      detail.textContent=cf.used+'/'+cf.max+' calls used this hour';
+      label.textContent='CSFloat ready in '+b.nextCallInSeconds+'s';
+      detail.textContent=b.used+'/'+b.max+' calls · '+queued+' queued';
       resetBtn.style.display='none';
     } else {
       bar.className='status-bar ready';
       label.textContent='CSFloat ready';
-      detail.textContent=cf.used+'/'+cf.max+' calls used this hour';
+      detail.textContent=b.used+'/'+b.max+' calls · '+queued+' queued';
       resetBtn.style.display='none';
     }
-    if(sp.cooling){
-      spDetail.style.display='inline';
-      var spMsg='· Skinport rate-limited until '+sp.cooldownEndsAt;
-      if(scanSource==='csfloat-scan-cached') spMsg+=' (CSFloat fallback cached)';
-      else if(scanSource==='csfloat-scan') spMsg+=' (CSFloat fallback active)';
-      else spMsg+=' (CSFloat fallback active)';
-      spDetail.textContent=spMsg;
-    } else {
-      spDetail.style.display='none';
-    }
   }catch(e){}
+}
+
+async function fetchSkinportDirect(minVal,maxVal){
+  var now=Date.now();
+  if(spCache.data&&(now-spCache.timestamp)<SP_CACHE_TTL){
+    var age=Math.round((now-spCache.timestamp)/60000);
+    addLog('Skinport cache hit ('+age+'min old)');
+    return filterSpItems(spCache.data,minVal,maxVal);
+  }
+  addLog('Fetching Skinport...','i');
+  try{
+    var res=await fetch('https://api.skinport.com/v1/items?app_id=730&currency=USD&tradable=0',{headers:{'Accept':'application/json'}});
+    if(!res.ok){
+      addLog('Skinport HTTP '+res.status+(spCache.data?' — stale cache':''),'e');
+      return spCache.data?filterSpItems(spCache.data,minVal,maxVal):[];
+    }
+    var arr=await res.json();
+    if(!Array.isArray(arr)){addLog('Skinport: unexpected response','e');return spCache.data?filterSpItems(spCache.data,minVal,maxVal):[];}
+    spCache.data=arr;spCache.timestamp=now;
+    addLog('Skinport: '+arr.length+' items fetched');
+    return filterSpItems(arr,minVal,maxVal);
+  }catch(e){
+    addLog('Skinport error: '+e.message+(spCache.data?' — stale cache':''),'e');
+    return spCache.data?filterSpItems(spCache.data,minVal,maxVal):[];
+  }
+}
+
+function filterSpItems(arr,minVal,maxVal){
+  return arr.filter(function(i){return i.min_price!=null&&i.min_price>=minVal&&i.min_price<=maxVal&&i.quantity>0;})
+    .map(function(i){return{name:i.market_hash_name,skinportPrice:Math.round(i.min_price*100),suggestedPrice:Math.round((i.suggested_price||i.median_sale_price||0)*100),quantity:i.quantity,url:i.item_page};});
 }
 
 async function resetCooldown(){
@@ -432,128 +455,100 @@ async function runScan(){
   document.getElementById('sRuns').textContent=scanCount;
   setStatus('scanning...','scanning');
   await updateCFStatus();
-
   addLog('Scan #'+scanCount+' — $'+minVal+'-$'+maxVal+(cfCooling?' [CSFloat cooling]':''),'i');
 
   try{
-    // Step 1: Skinport broad scan
-    var spRes=await fetch('/api/scan?min_price='+(minVal*100)+'&max_price='+(maxVal*100));
-    var scanData=await spRes.json();
-    var candidates=Array.isArray(scanData)?scanData:(scanData.candidates||[]);
-    var scanSource=Array.isArray(scanData)?'skinport':(scanData.source||'unknown');
+    // Step 1: Skinport — browser calls API directly (home IP, no VPS rate limiting)
+    var spItems=await fetchSkinportDirect(minVal,maxVal);
 
-    // Filter candidates
-    candidates=candidates.filter(function(c){
+    var filtered=spItems.filter(function(c){
       if(!c.name)return false;
       if(isIlliquid(c.name))return false;
       if(!inclST&&isStatTrak(c.name))return false;
       if(!inclPat&&isPattern(c.name))return false;
-      if(c.suggestedPrice>0){
-        var disc=((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100;
-        return disc>=minDiscount;
-      }
+      if(c.suggestedPrice>0){var disc=((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100;return disc>=minDiscount;}
       return true;
     });
-
-    // Sort by discount
-    candidates.sort(function(a,b){
-      var da=a.suggestedPrice>0?(b.suggestedPrice-b.skinportPrice)/b.suggestedPrice:0;
-      var db=b.suggestedPrice>0?(a.suggestedPrice-a.skinportPrice)/a.suggestedPrice:0;
-      return da-db;
+    filtered.sort(function(a,b){
+      var da=a.suggestedPrice>0?((a.suggestedPrice-a.skinportPrice)/a.suggestedPrice):0;
+      var db=b.suggestedPrice>0?((b.suggestedPrice-b.skinportPrice)/b.suggestedPrice):0;
+      return db-da;
     });
+    document.getElementById('sCandidates').textContent=filtered.length;
+    addLog('Skinport: '+filtered.length+' candidates in range');
 
-    document.getElementById('sCandidates').textContent=candidates.length;
-    addLog(scanSource+': '+candidates.length+' candidates'+(scanSource==='skinport-stale'?' (stale cache)':scanSource==='csfloat-scan'?' (CSFloat fallback)':scanSource==='csfloat-scan-cached'?' (CSFloat cached — no API call used)':''));
+    // Step 2: Merge new candidates into the persistent validation queue
+    filtered.forEach(function(c){
+      if(allDeals.find(function(d){return d.name===c.name&&d.validated;}))return;
+      if(validationQueue.find(function(q){return q.name===c.name;}))return;
+      validationQueue.push(c);
+    });
+    document.getElementById('sQueue').textContent=validationQueue.length;
+    addLog('Queue: '+validationQueue.length+' pending validation');
 
-    var newDeals=[];
+    // Step 3: Validate up to 2 from the front of the queue
     var validatedCount=0;
-
-    // Step 2: If CSFloat not cooling, validate top candidates
-    if(!cfCooling){
-      var toValidate=candidates.slice(0,4);
-      addLog('Validating top '+toValidate.length+' with CSFloat...','i');
-      for(var i=0;i<toValidate.length;i++){
-        var c=toValidate[i];
+    while(validatedCount<2&&validationQueue.length>0){
+      await updateCFStatus();
+      if(cfCooling){addLog('CSFloat cooling — '+validationQueue.length+' queued','w');break;}
+      var c=validationQueue[0];
+      addLog('Validating: '+c.name);
+      try{
+        var vRes=await fetch('/api/validate?market_hash_name='+encodeURIComponent(c.name)+'&depth='+depth);
+        var vData=await vRes.json();
         await updateCFStatus();
-        if(cfCooling){addLog('CSFloat entered cooldown — switching to Skinport-only mode','w');break;}
-        addLog('Validating: '+c.name);
-        try{
-          var vRes=await fetch('/api/validate?market_hash_name='+encodeURIComponent(c.name)+'&depth='+depth);
-          var vData=await vRes.json();
-          await updateCFStatus();
-          if(vData.cooling){addLog('CSFloat cooling — stopping validation','w');cfCooling=true;break;}
-          if(vData.throttled){addLog('CSFloat throttled — waiting','w');break;}
-          var ladder=vData.data||[];
-          if(!ladder||ladder.length<2){addLog('No ladder for '+c.name);continue;}
-          ladder.sort(function(a,b){return a.price-b.price;});
-          var buyPrice=ladder[0].price/100;
-          var next1=ladder[1].price/100;
-          var gapPct=((next1-buyPrice)/buyPrice)*100;
-          var profit=calcRealProfit(ladder,buyPrice,feeP,slippageP);
-          if(!profit)continue;
-          var liq=calcLiquidity(c.name,ladder.length);
-          if(liqRank[liq]<liqRank[minLiq])continue;
-          var deal={id:'cf'+Date.now()+i,name:c.name,buyPrice,next1,gapPct,liquidity:liq,ladderCount:ladder.length,ladder:ladder.slice(0,8),profit,validated:true,fromCache:vData.fromCache,warnings:[],reviewState:null,timestamp:Date.now()};
-          deal.warnings=buildWarnings(deal,ladder,profit);
-          if(profit.netProfit>=minProfit&&profit.profitPct>=minProfitPct){
-            addLog('VALIDATED DEAL: '+c.name+' | net $'+profit.netProfit.toFixed(2),'s');
-            upsertDeal(deal);
-            validatedCount++;
-          }
-        }catch(e){addLog('Validation error: '+e.message,'e');}
-        if(i<toValidate.length-1)await sleep(1500);
-      }
+        if(vData.cooling){addLog('CSFloat cooling — '+validationQueue.length+' queued','w');cfCooling=true;break;}
+        if(vData.throttled){addLog('CSFloat throttled — next call in '+vData.nextCallInSeconds+'s','w');break;}
+        validationQueue.shift();
+        document.getElementById('sQueue').textContent=validationQueue.length;
+        var ladder=vData.data||[];
+        if(!ladder||ladder.length<2){addLog('No ladder: '+c.name);validatedCount++;continue;}
+        ladder.sort(function(a,b){return a.price-b.price;});
+        var buyPrice=ladder[0].price/100;
+        var next1=ladder[1].price/100;
+        var gapPct=((next1-buyPrice)/buyPrice)*100;
+        var profit=calcRealProfit(ladder,buyPrice,feeP,slippageP);
+        if(!profit){validatedCount++;continue;}
+        var liq=calcLiquidity(c.name,ladder.length);
+        if(liqRank[liq]<liqRank[minLiq]){validatedCount++;continue;}
+        var deal={id:'cf'+Date.now()+validatedCount,name:c.name,buyPrice,next1,gapPct,liquidity:liq,ladderCount:ladder.length,ladder:ladder.slice(0,8),profit,validated:true,fromCache:vData.fromCache,warnings:[],reviewState:null,timestamp:Date.now()};
+        deal.warnings=buildWarnings(deal,ladder,profit);
+        if(profit.netProfit>=minProfit&&profit.profitPct>=minProfitPct){
+          addLog('DEAL: '+c.name+' | net $'+profit.netProfit.toFixed(2),'s');
+          upsertDeal(deal);
+        }
+        validatedCount++;
+      }catch(e){addLog('Validation error: '+e.message,'e');validationQueue.shift();document.getElementById('sQueue').textContent=validationQueue.length;}
+      if(validatedCount<2&&validationQueue.length>0)await sleep(1500);
     }
 
-    // Step 3: Skinport-only fallback for remaining candidates
-    var remainingCandidates=candidates.slice(validatedCount,validatedCount+10);
-    var unvalCount=0;
-    remainingCandidates.forEach(function(c){
-      if(allDeals.find(function(d){return d.name===c.name&&d.validated;}))return;
+    // Step 4: Show top queued items as unvalidated cards (so you can see what's waiting)
+    validationQueue.slice(0,10).forEach(function(c){
+      if(allDeals.find(function(d){return d.name===c.name;}))return;
       var buyPrice=c.skinportPrice/100;
       var profit=calcSkinportProfit(c,feeP,slippageP);
-      if(profit&&profit.netProfit<minProfit*0.5)return; // lower threshold for unvalidated
+      if(profit&&profit.netProfit<minProfit*0.5)return;
       var liq=calcLiquidity(c.name,3);
       if(liqRank[liq]<liqRank[minLiq])return;
-      var deal={id:'sp'+Date.now()+Math.random(),name:c.name,buyPrice,skinportPrice:c.skinportPrice,suggestedPrice:c.suggestedPrice,discountPct:c.suggestedPrice>0?((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100:0,liquidity:liq,profit,validated:false,warnings:[],reviewState:null,timestamp:Date.now()};
+      var deal={id:'sp'+c.name.replace(/[^a-zA-Z0-9]/g,'_'),name:c.name,buyPrice,skinportPrice:c.skinportPrice,suggestedPrice:c.suggestedPrice,discountPct:c.suggestedPrice>0?((c.suggestedPrice-c.skinportPrice)/c.suggestedPrice)*100:0,liquidity:liq,profit,validated:false,warnings:[],reviewState:null,timestamp:Date.now()};
       deal.warnings=buildWarnings(deal,null,profit);
       upsertDeal(deal);
-      unvalCount++;
     });
 
     document.getElementById('sDeals').textContent=allDeals.filter(function(d){return d.validated;}).length;
-    document.getElementById('sUnval').textContent=allDeals.filter(function(d){return !d.validated;}).length;
-    var bestValidated=allDeals.filter(function(d){return d.validated&&d.profit;}).sort(function(a,b){return b.profit.netProfit-a.profit.netProfit;});
-    if(bestValidated.length)document.getElementById('sProfit').textContent='$'+bestValidated[0].profit.netProfit.toFixed(0);
+    var bestV=allDeals.filter(function(d){return d.validated&&d.profit;}).sort(function(a,b){return b.profit.netProfit-a.profit.netProfit;});
+    if(bestV.length)document.getElementById('sProfit').textContent='$'+bestV[0].profit.netProfit.toFixed(0);
 
-    if(validatedCount>0){showAlert(validatedCount+' validated deal'+(validatedCount>1?'s':'')+' found!');playSound();}
-
+    if(validatedCount>0){showAlert(validatedCount+' deal'+(validatedCount>1?'s':'')+' validated!');playSound();}
     renderDeals();
-
-    // Both sources cooling with no data — pause aggressive retries
-    if(scanSource==='skinport-cooling'&&candidates.length===0&&lastBudget){
-      var cf2=lastBudget.csfloat||lastBudget,sp2=lastBudget.skinport||{};
-      var spEndMs=sp2.cooldownUntilMs||0;
-      var cfNextMs=cf2.cooling?(cf2.cooldownUntil||0):(Date.now()+(cf2.nextCallInSeconds||600)*1000);
-      var times=[spEndMs,cfNextMs].filter(function(t){return t>Date.now();});
-      var nextRetryMs=times.length?Math.min.apply(null,times):Date.now()+900000;
-      nextRetryMs=Math.max(nextRetryMs,Date.now()+60000);
-      pauseUntilMs=nextRetryMs;
-      var retryTime=new Date(nextRetryMs).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'});
-      addLog('Market data cooling — next retry at '+retryTime,'w');
-      setStatus('cooling','error');
-      if(!allDeals.length)document.getElementById('dealsContainer').innerHTML='<div class="empty"><div class="icon">&#8987;</div><p>Market data cooling down<br><span style="font-size:12px;color:var(--text3)">Next automatic retry at '+retryTime+'</span></p></div>';
-    } else {
-      setStatus(allDeals.length+' deal'+(allDeals.length!==1?'s':''),allDeals.length>0?'active':'');
-    }
-
-    addLog('Done — '+validatedCount+' validated, '+unvalCount+' Skinport-only','s');
+    setStatus(allDeals.length+' deal'+(allDeals.length!==1?'s':''),allDeals.length>0?'active':'');
+    addLog('Done — '+validatedCount+' validated, '+validationQueue.length+' queued','s');
 
   }catch(err){
     addLog('Error: '+err.message,'e');
     setStatus('error','error');
   }
-  await updateCFStatus(scanSource);
+  await updateCFStatus();
 }
 
 function upsertDeal(deal){
@@ -564,20 +559,38 @@ function upsertDeal(deal){
   } else {
     allDeals.push(deal);
   }
-  // Sort: validated first, then by profit
+  // Sort: validated strong → validated maybe → validated weak → unvalidated by discount
   allDeals.sort(function(a,b){
     if(a.validated&&!b.validated)return -1;
     if(!a.validated&&b.validated)return 1;
-    var ap=a.profit?a.profit.netProfit:0;
-    var bp=b.profit?b.profit.netProfit:0;
-    return bp-ap;
+    if(a.validated&&b.validated){
+      var aTier=a.score>=80?2:a.score>=60?1:0;
+      var bTier=b.score>=80?2:b.score>=60?1:0;
+      if(aTier!==bTier)return bTier-aTier;
+      var ap=a.profit?a.profit.netProfit:0,bp=b.profit?b.profit.netProfit:0;
+      return bp-ap;
+    }
+    return (b.discountPct||0)-(a.discountPct||0);
   });
 }
 
 function renderDeals(){
   var c=document.getElementById('dealsContainer');
-  if(!allDeals.length){c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Scanning for deals...</p></div>';return;}
-  c.innerHTML=allDeals.map(dealHTML).join('');
+  var validated=allDeals.filter(function(d){return d.validated;});
+  var unvalidated=allDeals.filter(function(d){return !d.validated;});
+  if(!validated.length&&!unvalidated.length){
+    c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Scanning for deals...</p></div>';return;
+  }
+  var html='';
+  if(validated.length){
+    html+='<div class="section-hdr"><span class="section-title">CSFloat Validated Deals</span><span class="section-count">'+validated.length+'</span></div>';
+    html+=validated.map(dealHTML).join('');
+  }
+  if(unvalidated.length){
+    html+='<div class="section-hdr"><span class="section-title">Unvalidated Skinport Candidates</span><span class="section-count">'+unvalidated.length+'</span></div>';
+    html+=unvalidated.map(dealHTML).join('');
+  }
+  c.innerHTML=html;
 }
 
 function dealHTML(d){
@@ -592,10 +605,10 @@ function dealHTML(d){
     var warns=(d.warnings||[]).map(function(w){return'<div class="warning '+w.type+'">'+esc(w.msg)+'</div>';}).join('');
     return'<div class="deal-card unvalidated" id="card-'+id+'">'
       +'<div class="deal-top"><div><div class="deal-name">'+esc(d.name)+'</div>'
-      +'<div class="deal-tags"><span class="tag unvalidated">Unvalidated</span>'+condTag+'<span class="liq '+d.liquidity+'">'+d.liquidity+' liq</span></div></div>'
+      +'<div class="deal-tags"><span class="tag unvalidated">Needs CSFloat validation</span>'+condTag+'<span class="liq '+d.liquidity+'">'+d.liquidity+' liq</span></div></div>'
       +'<div class="deal-score-badge"><div class="score-num unval">~</div><div class="score-lbl">Estimate</div></div></div>'
       +'<div class="net-profit-bar unvalidated">'
-      +'<div><div class="np-label">'+(p?'Skinport-only estimate (NOT validated) — based on suggested price':'No suggested price — needs CSFloat validation')+'</div></div>'
+      +'<div><div class="np-label">'+(p?'Skinport-only estimate — not confirmed by CSFloat':'No suggested price data — CSFloat validation required')+'</div></div>'
       +'<div><span class="np-value">~$'+estProfit+'</span><span class="np-pct">~'+(p?p.profitPct.toFixed(1):'?')+'% ROI</span></div></div>'
       +(warns?'<div class="warnings">'+warns+'</div>':'')
       +'<div class="profit-grid">'
@@ -667,14 +680,17 @@ async function validateNow(name,safeId){
     var deal={id:'mv'+Date.now(),name,buyPrice,next1,gapPct,liquidity:liq,ladderCount:ladder.length,ladder:ladder.slice(0,8),profit,validated:true,fromCache:data.fromCache,warnings:[],reviewState:null,timestamp:Date.now()};
     deal.warnings=buildWarnings(deal,ladder,profit);
     upsertDeal(deal);
+    validationQueue=validationQueue.filter(function(q){return q.name!==name;});
     document.getElementById('sDeals').textContent=allDeals.filter(function(d){return d.validated;}).length;
-    document.getElementById('sUnval').textContent=allDeals.filter(function(d){return !d.validated;}).length;
+    document.getElementById('sQueue').textContent=validationQueue.length;
     addLog('Validated: '+name+' | net $'+profit.netProfit.toFixed(2)+(profit.netProfit>0?' ✓':' ✗'),'s');
     renderDeals();
   }catch(e){addLog('Error: '+e.message,'e');}
 }
 
 function dismissDeal(safeId){
+  var deal=allDeals.find(function(d){return String(d.id).replace(/[^a-zA-Z0-9_-]/g,'_')===safeId;});
+  if(deal){validationQueue=validationQueue.filter(function(q){return q.name!==deal.name;});document.getElementById('sQueue').textContent=validationQueue.length;}
   allDeals=allDeals.filter(function(d){return String(d.id).replace(/[^a-zA-Z0-9_-]/g,'_')!==safeId;});
   renderDeals();
 }
@@ -711,7 +727,7 @@ function renderHistory(){
   c.innerHTML='<div style="overflow-x:auto"><table class="hist-table"><thead><tr><th>Item</th><th>Buy</th><th>Net profit</th><th>ROI</th><th>Source</th><th>Decision</th><th>Time</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 
-function clearDeals(){allDeals=[];renderDeals();document.getElementById('sDeals').textContent=0;document.getElementById('sUnval').textContent=0;document.getElementById('sProfit').textContent='—';}
+function clearDeals(){allDeals=[];validationQueue=[];renderDeals();document.getElementById('sDeals').textContent=0;document.getElementById('sCandidates').textContent=0;document.getElementById('sQueue').textContent=0;document.getElementById('sProfit').textContent='—';}
 function clearHistory(){dealHistory=[];renderHistory();}
 
 function toggleScan(){
@@ -727,13 +743,8 @@ function toggleScan(){
     lbl.textContent='Stop scanning';
     addLog('Scanner started','i');
     function next(){
-      if(!scanning)return;
-      var delay=parseInt(document.getElementById('cfg-interval').value)*1000;
-      if(pauseUntilMs>Date.now()){
-        delay=pauseUntilMs-Date.now();
-        addLog('Scan paused — market data cooling until '+new Date(pauseUntilMs).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'}),'w');
-      }
-      scanTimer=setTimeout(function(){if(scanning){pauseUntilMs=0;runScan().then(next);}},delay);
+      var iv=parseInt(document.getElementById('cfg-interval').value)*1000;
+      scanTimer=setTimeout(function(){if(scanning)runScan().then(next);},iv);
     }
     runScan().then(next);
   }
