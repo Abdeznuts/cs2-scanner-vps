@@ -125,12 +125,16 @@ function fetchCSFloat(apiUrl) {
 }
 
 // ─── Skinport (Brotli, no auth) ───────────────────────────────────────────────
-async function skinportListings(minPrice, maxPrice) {
-  const key = 'sp:' + minPrice + ':' + maxPrice;
+async function skinportListings(minPriceCents, maxPriceCents) {
+  const key = 'sp:' + minPriceCents + ':' + maxPriceCents;
   const cached = getCached(key, 90000);
   if (cached) { console.log('[skinport cache] ' + cached.length + ' items'); return cached; }
 
-  console.log('[skinport] fetching...');
+  // Skinport API returns prices in USD dollars; convert our cent params for comparison
+  const minUsd = minPriceCents / 100;
+  const maxUsd = maxPriceCents / 100;
+
+  console.log('[skinport] fetching $' + minUsd + '-$' + maxUsd + '...');
 
   return new Promise((resolve) => {
     const zlib = require('zlib');
@@ -151,11 +155,12 @@ async function skinportListings(minPrice, maxPrice) {
           const arr = JSON.parse(body);
           const items = Array.isArray(arr) ? arr : [];
           const candidates = items
-            .filter(i => i.min_price >= minPrice && i.min_price <= maxPrice && i.quantity > 0)
+            .filter(i => i.min_price >= minUsd && i.min_price <= maxUsd && i.quantity > 0)
             .map(i => ({
               name: i.market_hash_name,
-              skinportPrice: i.min_price,
-              suggestedPrice: i.suggested_price || i.median_sale_price || 0,
+              // Convert to cents so client-side buyPrice = skinportPrice / 100 is correct
+              skinportPrice: Math.round(i.min_price * 100),
+              suggestedPrice: Math.round((i.suggested_price || i.median_sale_price || 0) * 100),
               quantity: i.quantity,
               url: i.item_page
             }));
