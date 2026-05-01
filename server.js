@@ -257,6 +257,42 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Debug: raw Skinport connectivity test — visit /api/sp-debug in browser
+    if (pathname === '/api/sp-debug') {
+      const zlib = require('zlib');
+      const result = await new Promise((resolve) => {
+        const opts = {
+          hostname: 'api.skinport.com',
+          path: '/v1/items?app_id=730&currency=USD&tradable=0',
+          headers: { 'Accept-Encoding': 'gzip, br', 'Accept': 'application/json', 'User-Agent': 'CS2-Scanner/1.0' }
+        };
+        https.get(opts, (res2) => {
+          const enc = res2.headers['content-encoding'] || 'none';
+          const status = res2.statusCode;
+          let stream = res2;
+          if (enc === 'br') stream = res2.pipe(zlib.createBrotliDecompress());
+          else if (enc === 'gzip' || enc === 'deflate') stream = res2.pipe(zlib.createGunzip());
+          let body = '';
+          stream.on('data', c => body += c);
+          stream.on('end', () => {
+            try {
+              const arr = JSON.parse(body);
+              const isArray = Array.isArray(arr);
+              const sample = isArray ? arr.slice(0, 2) : arr;
+              const inRange = isArray ? arr.filter(i => i.min_price != null && i.min_price >= 100 && i.min_price <= 3000 && i.quantity > 0).length : 0;
+              resolve({ status, encoding: enc, isArray, totalItems: isArray ? arr.length : 0, inRange_100_3000: inRange, sample });
+            } catch(e) {
+              resolve({ status, encoding: enc, parseError: e.message, bodyPreview: body.slice(0, 300) });
+            }
+          });
+          stream.on('error', e => resolve({ status, encoding: enc, streamError: e.message }));
+        }).on('error', e => resolve({ connectError: e.message }));
+      });
+      res.writeHead(200);
+      res.end(JSON.stringify(result, null, 2));
+      return;
+    }
+
     if (pathname === '/api/validate') {
       const name = query.market_hash_name;
       const depth = parseInt(query.depth || '10');
