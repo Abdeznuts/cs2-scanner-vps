@@ -155,10 +155,29 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .reason-tag{font-size:10px;color:var(--text3);padding:2px 6px;border-radius:var(--r-xs);background:var(--bg3);border:0.5px solid var(--border)}
 .breakdown-bar-wrap{flex:1;background:var(--bg3);border-radius:2px;height:14px;overflow:hidden}
 .breakdown-bar{height:100%;border-radius:2px;opacity:0.75}
-/* Execute mode */
-.execute-card{border-left:3px solid #d4af37!important}
-.execute-badge{background:linear-gradient(135deg,#b8960c,#d4af37);color:#000;font-size:10px;font-weight:800;padding:3px 10px;border-radius:var(--r-xs);letter-spacing:1px}
+/* Tier borders — color-coded for instant scanning */
+.tier-execute{border-left:4px solid #d4af37!important;background:rgba(212,175,55,0.03)!important}
+.tier-strong{border-left:4px solid var(--green)!important}
+.tier-review{border-left:4px solid var(--amber)!important}
+/* Execute header */
+.execute-badge{background:linear-gradient(135deg,#b8960c,#d4af37);color:#000;font-size:12px;font-weight:900;padding:5px 16px;border-radius:var(--r-xs);letter-spacing:1.5px}
 .execute-hdr{background:rgba(212,175,55,0.07);border:0.5px solid rgba(212,175,55,0.3);border-radius:var(--r);padding:0.875rem 1rem;margin-bottom:0.75rem;display:flex;align-items:center;gap:10px}
+/* BUY NOW badge — bigger for faster recognition */
+.buy-now-badge{font-size:12px!important;font-weight:900!important;padding:5px 16px!important;letter-spacing:1.5px!important;border-radius:var(--r-xs)!important}
+/* Compact card mode */
+.compact-card{padding:0.6rem 1rem!important;margin-bottom:5px!important}
+.compact-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.compact-name{font-size:13px;font-weight:500;flex:1;min-width:180px}
+.compact-metrics{display:flex;gap:10px;flex-wrap:wrap;font-size:12px}
+.cm-g{color:var(--green)}.cm-a{color:var(--amber)}.cm-r{color:var(--red)}.cm-n{color:var(--text2)}
+.compact-actions{display:flex;gap:5px;margin-left:auto}
+/* Why-passed / why-fail chip rows */
+.why-row{display:flex;flex-wrap:wrap;gap:5px;padding:7px 0;border-top:0.5px solid var(--border);align-items:center}
+.why-lbl{font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3);margin-right:2px;white-space:nowrap}
+.wc{font-size:11px;padding:2px 7px;border-radius:var(--r-xs);font-weight:500}
+.wc-g{background:var(--green-bg);color:var(--green);border:0.5px solid var(--green-border)}
+.wc-a{background:var(--amber-bg);color:var(--amber);border:0.5px solid var(--amber-border)}
+.wc-r{background:var(--red-bg);color:var(--red);border:0.5px solid var(--red-border)}
 /* Trade tracking */
 .trade-input{background:var(--bg3);color:var(--text);border:0.5px solid var(--border2);border-radius:var(--r-xs);padding:5px 8px;font-size:12px;width:110px}
 .stat-mini{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:0.75rem;text-align:center;flex:1;min-width:90px}
@@ -228,6 +247,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:8px">
       <span style="font-size:13px;font-weight:500">Live deals</span>
       <div style="display:flex;gap:4px">
+        <button class="btn" id="compactBtn" onclick="toggleCompact()" style="font-size:12px;padding:5px 12px">Compact</button>
         <button class="btn" id="wlBtn" onclick="toggleWhitelist()" style="font-size:12px;padding:5px 12px;color:var(--green);border-color:var(--green-border)">WL: ON</button>
         <button class="btn" id="fExecute" onclick="setFilter('execute')" style="font-size:12px;padding:5px 12px;color:#d4af37;border-color:rgba(212,175,55,0.4)">EXECUTE</button>
         <button class="btn" id="fStrong" onclick="setFilter('strong')" style="font-size:12px;padding:5px 12px">Strong only</button>
@@ -285,6 +305,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div class="sg-group"><label>Sound alerts</label><select id="cfg-sound"><option value="on">Enabled</option><option value="off">Disabled</option></select></div>
       <div class="sg-group"><label>USD → CAD rate</label><input type="number" id="cfg-cadRate" value="1.37" min="1" max="2" step="0.01"></div>
       <div class="sg-group"><label>Resale mode</label><select id="cfg-resaleMode" onchange="resaleMode=this.value"><option value="safe" selected>Safe (−7%)</option><option value="realistic">Realistic (−3%)</option><option value="aggressive">Aggressive (−1%)</option></select></div>
+      <div class="sg-group"><label>Fallback resale multiplier</label><input type="number" id="cfg-fallbackMult" value="1.10" min="1.01" max="1.29" step="0.01"><div style="font-size:10px;color:var(--text3);margin-top:4px">Used when mean price is invalid. 1.10 = assume 10% above cheapest listing.</div></div>
     </div>
   </div>
 
@@ -336,6 +357,7 @@ var resaleMode='safe';
 var filterMode='review';
 var openTrades=[];
 var closedTrades=[];
+var compactMode=false;
 var whitelistMode=true;
 var lastWlHidden=0;
 
@@ -401,8 +423,15 @@ function calcRealProfit(ladder,buyPrice,feeP,slippageP){
   return{resaleTarget,slippageAmt,feeAmt,netProfit,profitPct,sensitivity};
 }
 
+// Mean is valid only if it's ≤ 1.5× the cheapest listing.
+// Above that, outlier listings (someone listing at 10× market price) inflate the average.
+function isMeanValid(c){
+  if(!c.ladderMean||c.ladderMean<=0)return false;
+  return c.ladderMean<=c.skinportPrice*1.5;
+}
+
 function calcSpLadderGap(c){
-  if(!c.ladderMean||c.ladderMean<=c.skinportPrice)return 0;
+  if(!isMeanValid(c))return 0; // don't use outlier-inflated mean for gap
   return((c.ladderMean-c.skinportPrice)/c.skinportPrice)*100;
 }
 
@@ -416,19 +445,23 @@ function getResaleFactor(conf){
 
 // Confidence in the mean_price as a resale reference
 function calcSpConfidence(c){
-  var gap=calcSpLadderGap(c);
   var qty=c.quantity||0;
   if(!c.ladderMean||c.ladderMean<=0)
-    return{level:'low',factor:0.92,reason:'No mean price from Skinport API'};
+    return{level:'low',factor:0.92,reason:'No mean price from Skinport API',meanValid:false};
+  if(!isMeanValid(c)){
+    var ratio=((c.ladderMean/c.skinportPrice)).toFixed(1);
+    return{level:'low',factor:0.92,
+      reason:'Mean CA$'+(c.ladderMean/100).toFixed(0)+' is '+ratio+'× cheapest — outlier distortion',
+      meanValid:false,isOutlier:true};
+  }
+  var gap=calcSpLadderGap(c);
   if(qty<3)
-    return{level:'low',factor:0.92,reason:'Only '+qty+' listing'+(qty===1?'':'s')+' — mean equals min, unreliable'};
-  if(gap>60)
-    return{level:'low',factor:0.90,reason:'Gap >60% — mean likely inflated by expensive outlier listings'};
+    return{level:'low',factor:0.92,reason:'Only '+qty+' listing'+(qty===1?'':'s')+' — mean unreliable',meanValid:true};
   if(qty>=5&&gap>=10&&gap<=40)
-    return{level:'high',factor:0.99,reason:qty+' listings, '+gap.toFixed(0)+'% gap — solid signal'};
-  if(qty>=3&&gap>=10&&gap<=50)
-    return{level:'medium',factor:0.96,reason:'Moderate confidence ('+qty+' listings) — verify on Skinport before buying'};
-  return{level:'low',factor:0.92,reason:'Insufficient data for reliable estimate'};
+    return{level:'high',factor:0.99,reason:qty+' listings, '+gap.toFixed(0)+'% gap — solid signal',meanValid:true};
+  if(qty>=3&&gap>=10)
+    return{level:'medium',factor:0.96,reason:'Moderate confidence ('+qty+' listings)',meanValid:true};
+  return{level:'low',factor:0.92,reason:'Insufficient data for reliable estimate',meanValid:true};
 }
 
 function calcSpPriorityScore(c){
@@ -437,23 +470,45 @@ function calcSpPriorityScore(c){
   return gap*3+(p?Math.max(0,p.netProfit)*0.05:0);
 }
 
-// Skinport-only profit estimate using mean_price with confidence-based conservative factor.
-// Rule: do NOT treat mean_price as guaranteed resale — apply confidence factor.
+// Skinport-only profit estimate.
+// Core rules:
+//   1. mean_price is only trusted if ≤ 1.5× min_price.
+//   2. Valid mean:   resale = min(mean × 0.97,  min × 1.25)
+//   3. Invalid mean: resale = min × fallbackMult (configurable, default 1.10)
+//   4. Hard cap:     resale ≤ min × 1.30 always (no exceptions without CSFloat)
 function calcSkinportProfit(candidate,feeP,slippageP){
   var buyPrice=candidate.skinportPrice/100;
-  var resaleRef=candidate.ladderMean&&candidate.ladderMean>candidate.skinportPrice
-    ?(candidate.ladderMean/100)
-    :(candidate.suggestedPrice&&candidate.suggestedPrice>candidate.skinportPrice
-      ?(candidate.suggestedPrice/100):0);
-  if(!resaleRef||resaleRef<=buyPrice)return null;
   var conf=calcSpConfidence(candidate);
+  var usingFallback=false;
+
+  var resaleRef;
+  if(conf.meanValid&&candidate.ladderMean>candidate.skinportPrice){
+    var meanPrice=candidate.ladderMean/100;
+    // Conservative: whichever is lower — 3% undercut of mean OR 25% above cheapest
+    resaleRef=Math.min(meanPrice*0.97, buyPrice*1.25);
+  } else {
+    // Mean is invalid (outlier) or missing — use configurable fallback
+    var fallbackMult=parseFloat((typeof cfgVal==='function'&&cfgVal('fallbackMult'))||1.10)||1.10;
+    fallbackMult=Math.max(1.01,Math.min(1.29,fallbackMult)); // clamp to safe range
+    resaleRef=buyPrice*fallbackMult;
+    usingFallback=true;
+  }
+
+  // Hard cap: unvalidated resale can NEVER exceed min × 1.30
+  resaleRef=Math.min(resaleRef,buyPrice*1.30);
+  if(resaleRef<=buyPrice)return null;
+
+  // Apply resale mode factor on top (safe/realistic/aggressive)
   var resaleTarget=resaleRef*getResaleFactor(conf);
+  // Re-apply hard cap after resale mode factor
+  resaleTarget=Math.min(resaleTarget,buyPrice*1.30);
+
   var slippageAmt=resaleTarget*slippageP;
   var resaleAfterSlip=resaleTarget-slippageAmt;
   var feeAmt=resaleAfterSlip*feeP;
   var netProfit=resaleAfterSlip-feeAmt-buyPrice;
   var profitPct=(netProfit/buyPrice)*100;
-  return{resaleTarget,slippageAmt,feeAmt,netProfit,profitPct,isEstimate:true,confidence:conf};
+  return{resaleTarget,slippageAmt,feeAmt,netProfit,profitPct,isEstimate:true,confidence:conf,usingFallback};
 }
 
 // Profit calc for validated deals: Skinport buy (CAD) vs CSFloat resale (USD→CAD)
@@ -486,10 +541,18 @@ function buildWarnings(deal,ladder,profit){
   if(isStatTrak(deal.name))warns.push({type:'info',msg:'StatTrak premium varies — verify demand'});
   if(!profit)warns.push({type:'warn',msg:'No price reference — needs CSFloat validation'});
   else if(profit.isEstimate){
-    var spGap=deal.ladderGapPct||0;
-    if(spGap<5)warns.push({type:'danger',msg:'Tight Skinport ladder — likely no edge after fees'});
-    else if(spGap<10)warns.push({type:'warn',msg:'Skinport ladder somewhat tight — edge may not survive fees'});
-    else warns.push({type:'warn',msg:'Unvalidated — estimated from Skinport mean price, not CSFloat'});
+    var spMean=deal.ladderMean,spMin=deal.skinportPrice;
+    if(spMean&&spMin&&spMean>spMin*1.5){
+      warns.push({type:'danger',msg:'Outlier pricing — mean CA$'+(spMean/100).toFixed(0)+' is '+(spMean/spMin).toFixed(1)+'× cheapest. Fallback estimate used.'});
+    }
+    if(profit.usingFallback){
+      warns.push({type:'danger',msg:'Market mean unreliable — profit based on fallback multiplier only. Verify on Skinport before acting.'});
+    } else {
+      var spGap=deal.ladderGapPct||0;
+      if(spGap<5)warns.push({type:'danger',msg:'Tight Skinport ladder — likely no edge after fees'});
+      else if(spGap<10)warns.push({type:'warn',msg:'Skinport ladder somewhat tight — edge may not survive fees'});
+      else warns.push({type:'warn',msg:'Unvalidated — estimated from Skinport mean, not CSFloat'});
+    }
   }
   return warns;
 }
@@ -889,6 +952,57 @@ function isExecuteEligible(deal){
     &&deal.liquidity==='high'&&tos.label==='Fast'&&risk.level!=='high';
 }
 
+function toggleCompact(){
+  compactMode=!compactMode;
+  var btn=document.getElementById('compactBtn');
+  if(btn){btn.style.borderColor=compactMode?'var(--green)':'';btn.style.color=compactMode?'var(--green)':'';}
+  renderDeals();
+}
+
+function buildWhyPassed(deal){
+  var p=deal.profit;
+  if(!p)return'';
+  var tos=calcTimeToSell(deal);
+  var risk=calcUndercutRisk(deal);
+  var chips='';
+  chips+='<span class="wc wc-g">CA$'+p.netProfit.toFixed(0)+' net</span>';
+  chips+='<span class="wc wc-g">'+p.profitPct.toFixed(1)+'% ROI</span>';
+  var gap=deal.ladderGapPct||deal.gapPct;
+  if(gap)chips+='<span class="wc wc-g">+'+gap.toFixed(0)+'% gap</span>';
+  chips+='<span class="wc '+(deal.liquidity==='high'?'wc-g':deal.liquidity==='medium'?'wc-a':'wc-r')+'">'+deal.liquidity+' liq</span>';
+  chips+='<span class="wc '+(tos.label==='Fast'?'wc-g':tos.label==='Medium'?'wc-a':'wc-r')+'">'+tos.label+' sell</span>';
+  chips+='<span class="wc '+(risk.level==='low'?'wc-g':risk.level==='medium'?'wc-a':'wc-r')+'">'+(risk.level==='low'?'Low risk':risk.level==='medium'?'Mid risk':'High risk')+'</span>';
+  if(deal.validated)chips+='<span class="wc wc-g">CSFloat ✓</span>';
+  return'<div class="why-row"><span class="why-lbl">Passed</span>'+chips+'</div>';
+}
+
+function buildWhyFail(deal){
+  var tos=calcTimeToSell(deal);
+  var risk=calcUndercutRisk(deal);
+  var conf=deal.confidence||{level:'medium'};
+  var p=deal.profit;
+  var chips='';
+  if(risk.level==='high')chips+='<span class="wc wc-r">High undercut risk</span>';
+  else if(risk.level==='medium')chips+='<span class="wc wc-a">Mid undercut risk</span>';
+  if(deal.liquidity==='low')chips+='<span class="wc wc-r">Low liquidity</span>';
+  else if(deal.liquidity==='medium')chips+='<span class="wc wc-a">Medium liquidity</span>';
+  if(tos.label==='Slow')chips+='<span class="wc wc-r">Slow to sell</span>';
+  else if(tos.label==='Medium')chips+='<span class="wc wc-a">1–3 days</span>';
+  if(conf.level==='low')chips+='<span class="wc wc-r">Low price confidence</span>';
+  else if(conf.level==='medium')chips+='<span class="wc wc-a">Uncertain resale</span>';
+  var gap=deal.ladderGapPct||deal.gapPct||0;
+  if(gap>0&&gap<12)chips+='<span class="wc wc-a">Narrow gap</span>';
+  if(p&&p.profitPct<10)chips+='<span class="wc wc-a">Thin ROI</span>';
+  if(!deal.validated){
+    if(deal.profit&&deal.profit.usingFallback)chips+='<span class="wc wc-r">Mean invalid — fallback</span>';
+    else if(!deal.validated)chips+='<span class="wc wc-a">Estimate only</span>';
+    if(deal.ladderMean&&deal.skinportPrice&&deal.ladderMean>deal.skinportPrice*1.5)
+      chips+='<span class="wc wc-r">Outlier pricing</span>';
+  }
+  if(!chips)return'';
+  return'<div class="why-row"><span class="why-lbl">Risk</span>'+chips+'</div>';
+}
+
 function setFilter(mode){
   filterMode=mode;
   ['execute','strong','review','all'].forEach(function(m){
@@ -922,7 +1036,14 @@ function buildDebugPanel(d){
   return'<div class="debug-panel">'
     +'<div class="dp-title">Calibration / Debug</div>'
     +'<div class="dp-row"><span class="dk">1st cheapest (min_price)</span><span class="dv">'+minP+'</span></div>'
-    +'<div class="dp-row"><span class="dk">Mean price (3rd–5th proxy)</span><span class="dv">'+meanP+'</span></div>'
+    +(function(){
+        var mv=d.ladderMean,mp=d.skinportPrice;
+        var valid=mv&&mp&&mv<=mp*1.5;
+        var ratio=mv&&mp?((mv/mp).toFixed(2)+'×'):'';
+        var note=mv?(valid?' ('+ratio+' min — valid)':' ('+ratio+' min — OUTLIER, ignored)'):'';
+        var col=valid?'':'color:var(--red)';
+        return'<div class="dp-row"><span class="dk">Mean price (3rd–5th proxy)</span><span class="dv" style="'+col+'">'+meanP+note+'</span></div>';
+      })()
     +'<div class="dp-row"><span class="dk">Max price</span><span class="dv">'+maxP+'</span></div>'
     +'<div class="dp-row"><span class="dk">Quantity</span><span class="dv">'+(d.quantity||'?')+' listings</span></div>'
     +'<div class="dp-row"><span class="dk">2nd / 3rd / 5th listing</span><span class="dv" style="color:var(--text3)">N/A — bulk API only</span></div>'
@@ -931,7 +1052,7 @@ function buildDebugPanel(d){
     +'<div class="dp-row"><span class="dk">Reason</span><span class="dv" style="font-size:10px;color:var(--text2)">'+esc(conf.reason||'')+'</span></div>'
     +'<div class="dp-row"><span class="dk">Resale reference used</span><span class="dv">'+resaleP+'</span></div>'
     +'<div class="dp-row"><span class="dk">Estimated net profit</span><span class="dv">'+netP+'</span></div>'
-    +(needsCheck?'<div class="dp-note">★ Estimated from Skinport mean only — manual page check required before buying</div>':'')
+    +(d.profit&&d.profit.usingFallback?'<div class="dp-note">⚠ Mean invalid — resale based on fallback multiplier. Hard-capped at min × 1.30. Manual check required.</div>':needsCheck?'<div class="dp-note">★ Estimated from Skinport mean only — manual page check required before buying</div>':'')
     +'</div>';
 }
 
@@ -983,13 +1104,44 @@ function dealHTML(d,isExec){
   var p=d.profit;
   var id=String(d.id).replace(/[^a-zA-Z0-9_-]/g,'_');
   var condTag=getCondition(d.name)?'<span class="tag condition">'+getCondition(d.name)+'</span>':'';
+  var tierInfo=calcDealTier(d);
+  var tierClass=isExec?'tier-execute':tierInfo.tier==='strong'?'tier-strong':'tier-review';
+
+  // ── Compact mode ─────────────────────────────────────────────────────────────
+  if(compactMode){
+    var tos=calcTimeToSell(d);
+    var risk=calcUndercutRisk(d);
+    var netStr=p?'CA$'+p.netProfit.toFixed(0)+' · '+p.profitPct.toFixed(1)+'% ROI':'N/A';
+    var gapVal=d.ladderGapPct||d.gapPct||0;
+    var gapStr=gapVal?'+'+gapVal.toFixed(0)+'% gap':'';
+    var tosC=tos.label==='Fast'?'cm-g':tos.label==='Medium'?'cm-a':'cm-r';
+    var riskC=risk.level==='low'?'cm-g':risk.level==='medium'?'cm-a':'cm-r';
+    var actions=d.validated
+      ?'<button class="review-btn buy" onclick="mark(\''+id+'\',\'buy\')">BUY</button>'
+       +'<button class="review-btn" onclick="mark(\''+id+'\',\'review\')">REVIEW</button>'
+       +'<button class="review-btn skip" onclick="showSkipReasons(\''+id+'\')">SKIP</button>'
+      :'<button class="review-btn validate-btn" onclick="validateNow(\''+esc(d.name)+'\',\''+id+'\')">Validate</button>'
+       +'<button class="review-btn skip" onclick="dismissDeal(\''+id+'\')">Dismiss</button>';
+    return'<div class="deal-card '+tierClass+' compact-card" id="card-'+id+'">'
+      +'<div class="compact-row">'
+      +'<div class="compact-name">'+esc(d.name)+'</div>'
+      +'<div class="compact-metrics">'
+      +'<span class="cm-g">'+netStr+'</span>'
+      +(gapStr?'<span class="cm-g">'+gapStr+'</span>':'')
+      +'<span class="'+tosC+'">'+tos.label+'</span>'
+      +'<span class="'+riskC+'">'+(risk.level==='low'?'Low risk':'Mid risk')+'</span>'
+      +(d.validated?'<span class="cm-g">CF✓</span>':'<span class="cm-a">estimate</span>')
+      +'</div>'
+      +'<div class="compact-actions">'+actions+'</div>'
+      +'</div></div>';
+  }
 
   if(!d.validated){
     // Skinport-only unvalidated card
     var disc=d.discountPct?d.discountPct.toFixed(1):'?';
     var estProfit=p?p.netProfit.toFixed(2):'?';
     var warns=(d.warnings||[]).map(function(w){return'<div class="warning '+w.type+'">'+esc(w.msg)+'</div>';}).join('');
-    return'<div class="deal-card unvalidated" id="card-'+id+'">'
+    return'<div class="deal-card unvalidated '+tierClass+'" id="card-'+id+'">'
       +'<div class="deal-top"><div><div class="deal-name">'+esc(d.name)+'</div>'
       +(function(){var t=calcDealTier(d),r=calcUndercutRisk(d),tos=calcTimeToSell(d);
         var tierTag=t.tier==='strong'?'<span class="tag validated">Strong</span>':'<span class="tag pending">Review</span>';
@@ -998,14 +1150,24 @@ function dealHTML(d,isExec){
         return'<div class="deal-tags">'+tierTag+'<span class="tag unvalidated">Needs CSFloat</span>'+condTag+'<span class="liq '+d.liquidity+'">'+d.liquidity+' liq</span>'+riskTag+tosTag+'</div></div>';
       })()
       +'<div class="deal-score-badge"><div class="score-num unval" style="font-size:20px">+'+(d.ladderGapPct?d.ladderGapPct.toFixed(0):'?')+'%</div><div class="score-lbl">SP gap</div></div></div>'
+      +buildWhyPassed(d)+buildWhyFail(d)
       +'<div class="net-profit-bar unvalidated">'
       +'<div><div class="np-label">'+(p?'Skinport-only estimate — not confirmed by CSFloat':'No suggested price data — CSFloat validation required')+'</div></div>'
       +'<div><span class="np-value">~CA$'+estProfit+'</span><span class="np-pct">~'+(p?p.profitPct.toFixed(1):'?')+'% ROI</span></div></div>'
       +(warns?'<div class="warnings">'+warns+'</div>':'')
       +'<div class="profit-grid">'
       +'<div class="profit-cell"><div class="pc-lbl">Cheapest listing</div><div class="pc-val">CA$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
-      +'<div class="profit-cell"><div class="pc-lbl">Market mean</div><div class="pc-val">CA$'+(d.ladderMean?(d.ladderMean/100).toFixed(2):'—')+'</div></div>'
-      +'<div class="profit-cell"><div class="pc-lbl">Ladder gap</div><div class="pc-val g">+'+(d.ladderGapPct?d.ladderGapPct.toFixed(1):'?')+'%</div></div>'
+      +(function(){
+        var mv=d.ladderMean,mp=d.skinportPrice;
+        var valid=mv&&mp&&mv<=mp*1.5;
+        var meanTxt=mv?('CA$'+(mv/100).toFixed(2)+(valid?'':' ⚠')):'—';
+        var meanColor=valid?'':'color:var(--red)';
+        var meanLbl=valid?'Market mean':'Market mean (outlier)';
+        var gapTxt=valid&&d.ladderGapPct?'+'+d.ladderGapPct.toFixed(1)+'%':'— (invalid)';
+        var gapColor=valid&&d.ladderGapPct?'g':'r';
+        return'<div class="profit-cell"><div class="pc-lbl">'+meanLbl+'</div><div class="pc-val" style="'+meanColor+'">'+meanTxt+'</div></div>'
+          +'<div class="profit-cell"><div class="pc-lbl">Ladder gap</div><div class="pc-val '+gapColor+'">'+gapTxt+'</div></div>';
+      })()
       +'</div>'
       +(debugMode?buildDebugPanel(d):'')
       +'<div class="review-bar">'
@@ -1026,16 +1188,17 @@ function dealHTML(d,isExec){
   }).join('');
   var warns=(d.warnings||[]).map(function(w){return'<div class="warning '+w.type+'">'+esc(w.msg)+'</div>';}).join('');
   var scoreLabel=d.score>=80?'Strong':d.score>=60?'Maybe':'Weak';
-  return'<div class="deal-card validated'+(isExec?' execute-card':'')+'" id="card-'+id+'">'
+  return'<div class="deal-card validated '+tierClass+'" id="card-'+id+'">'
     +'<div class="deal-top"><div><div class="deal-name">'+esc(d.name)+'</div>'
     +(function(){var t=calcDealTier(d),r=calcUndercutRisk(d),tos=calcTimeToSell(d);
-        var buyBadge=t.buySignal?'<span class="tag validated" style="background:var(--green);color:#000;font-weight:700;animation:blink 1s infinite">BUY NOW</span>':'';
+        var buyBadge=t.buySignal?'<span class="buy-now-badge" style="background:var(--green);color:#000;animation:blink 1s infinite;display:inline-flex;align-items:center">BUY NOW</span>':'';
         var tierTag=t.tier==='strong'?'<span class="tag validated">Strong</span>':'<span class="tag pending">Review</span>';
         var riskTag='<span class="tag condition" style="color:var(--'+(r.level==='low'?'green':r.level==='medium'?'amber':'red')+')">'+(r.level==='low'?'Low risk':r.level==='medium'?'Mid risk':'High risk')+'</span>';
         var tosTag='<span class="tag condition" style="color:var(--'+(tos.label==='Fast'?'green':tos.label==='Medium'?'amber':'red')+')">'+tos.label+'</span>';
         return'<div class="deal-tags">'+buyBadge+tierTag+'<span class="tag validated">CSFloat ✓</span>'+(d.fromCache?'<span class="tag cached">cached</span>':'')+condTag+'<span class="liq '+d.liquidity+'">'+d.liquidity+' liq</span>'+riskTag+tosTag+'</div></div>';
       })()
     +'<div class="deal-score-badge"><div class="score-num '+sc+'">'+(d.score||'?')+'</div><div class="score-lbl">'+scoreLabel+'</div></div></div>'
+    +buildWhyPassed(d)+buildWhyFail(d)
     +(rows?'<div class="ladder"><div class="ladder-title">Price ladder ('+d.ladderCount+' listings)</div><div class="ladder-rows">'+rows+'</div></div>':'')
     +'<div class="profit-grid">'
     +'<div class="profit-cell"><div class="pc-lbl">Buy (Skinport)</div><div class="pc-val">CA$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
