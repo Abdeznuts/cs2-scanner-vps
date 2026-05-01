@@ -173,6 +173,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div class="sb-left">
       <span class="sb-label" id="cfStatusLabel">CSFloat ready</span>
       <span class="sb-detail" id="cfStatusDetail">0/20 calls used this hour</span>
+      <span class="sb-detail" id="spStatusDetail" style="display:none;margin-left:10px"></span>
     </div>
     <button class="btn" id="cfResetBtn" onclick="resetCooldown()" style="display:none;font-size:12px;padding:5px 12px">Reset cooldown</button>
   </div>
@@ -370,26 +371,35 @@ async function updateCFStatus(){
   try{
     var res=await fetch('/api/budget');
     var b=await res.json();
-    cfCooling=b.cooling;
+    var cf=b.csfloat||b;
+    var sp=b.skinport||{cooling:false};
+    cfCooling=cf.cooling;
     var bar=document.getElementById('cfStatusBar');
     var label=document.getElementById('cfStatusLabel');
     var detail=document.getElementById('cfStatusDetail');
     var resetBtn=document.getElementById('cfResetBtn');
-    if(b.cooling){
+    var spDetail=document.getElementById('spStatusDetail');
+    if(cf.cooling){
       bar.className='status-bar cooling';
-      label.textContent='CSFloat cooling down until '+b.cooldownEndsAt;
-      detail.textContent='Skinport scanning continues. CSFloat resumes after cooldown.';
+      label.textContent='CSFloat cooling until '+cf.cooldownEndsAt;
+      detail.textContent='Validation paused.';
       resetBtn.style.display='flex';
-    } else if(b.nextCallInSeconds>0){
+    } else if(cf.nextCallInSeconds>0){
       bar.className='status-bar ok';
-      label.textContent='CSFloat ready in '+b.nextCallInSeconds+'s';
-      detail.textContent=b.used+'/'+b.max+' calls used this hour';
+      label.textContent='CSFloat ready in '+cf.nextCallInSeconds+'s';
+      detail.textContent=cf.used+'/'+cf.max+' calls used this hour';
       resetBtn.style.display='none';
     } else {
       bar.className='status-bar ready';
       label.textContent='CSFloat ready';
-      detail.textContent=b.used+'/'+b.max+' calls used this hour';
+      detail.textContent=cf.used+'/'+cf.max+' calls used this hour';
       resetBtn.style.display='none';
+    }
+    if(sp.cooling){
+      spDetail.style.display='inline';
+      spDetail.textContent='· Skinport rate-limited until '+sp.cooldownEndsAt+' (CSFloat fallback active)';
+    } else {
+      spDetail.style.display='none';
     }
   }catch(e){}
 }
@@ -423,8 +433,9 @@ async function runScan(){
   try{
     // Step 1: Skinport broad scan
     var spRes=await fetch('/api/scan?min_price='+(minVal*100)+'&max_price='+(maxVal*100));
-    var candidates=await spRes.json();
-    candidates=Array.isArray(candidates)?candidates:[];
+    var scanData=await spRes.json();
+    var candidates=Array.isArray(scanData)?scanData:(scanData.candidates||[]);
+    var scanSource=Array.isArray(scanData)?'skinport':(scanData.source||'unknown');
 
     // Filter candidates
     candidates=candidates.filter(function(c){
@@ -447,7 +458,7 @@ async function runScan(){
     });
 
     document.getElementById('sCandidates').textContent=candidates.length;
-    addLog('Skinport: '+candidates.length+' candidates');
+    addLog(scanSource+': '+candidates.length+' candidates'+(scanSource==='skinport-stale'?' (stale cache)':scanSource==='csfloat-scan'?' (CSFloat fallback)':''));
 
     var newDeals=[];
     var validatedCount=0;

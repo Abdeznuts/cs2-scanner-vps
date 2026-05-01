@@ -13,6 +13,20 @@ if (!CSFLOAT_KEY) {
   process.exit(1);
 }
 
+// ─── Skinport cooldown tracker ────────────────────────────────────────────────
+const spTracker = {
+  cooldownUntil: 0,
+  trigger429() {
+    this.cooldownUntil = Date.now() + 15 * 60 * 1000;
+    console.log('[skinport] 429 — cooldown 15min until ' + new Date(this.cooldownUntil).toLocaleTimeString());
+  },
+  isCooling() { return Date.now() < this.cooldownUntil; },
+  status() {
+    const cooling = this.isCooling();
+    return { cooling, cooldownEndsAt: cooling ? new Date(this.cooldownUntil).toLocaleTimeString() : null };
+  }
+};
+
 // ─── CSFloat cooldown tracker ─────────────────────────────────────────────────
 const cfloat = {
   cooldownUntil: 0,        // timestamp when cooldown ends
@@ -124,16 +138,26 @@ function fetchCSFloat(apiUrl) {
   });
 }
 
-// ─── Skinport (Brotli, no auth) ───────────────────────────────────────────────
-async function skinportListings(minPriceCents, maxPriceCents) {
-  const key = 'sp:' + minPriceCents + ':' + maxPriceCents;
-  const cached = getCached(key, 90000);
-  if (cached) { console.log('[skinport cache] ' + cached.length + ' items'); return cached; }
+// ─── Skinport broad scan (rate-limit aware, stale cache fallback) ─────────────
+const SP_FRESH_TTL = 15 * 60 * 1000;
+const SP_STALE_TTL = 3 * 60 * 60 * 1000;
 
-  // Skinport API returns prices in USD dollars; convert our cent params for comparison
+async function skinportListings(minPriceCents, maxPriceCents) {
+  const freshKey = 'sp:' + minPriceCents + ':' + maxPriceCents;
+  const staleKey = 'sp_stale:' + minPriceCents + ':' + maxPriceCents;
+
+  const fresh = getCached(freshKey, SP_FRESH_TTL);
+  if (fresh) { console.log('[skinport cache] ' + fresh.length + ' items'); return { candidates: fresh, source: 'skinport' }; }
+
+  if (spTracker.isCooling()) {
+    const stale = getCached(staleKey, SP_STALE_TTL);
+    if (stale) { console.log('[skinport] cooling — stale cache (' + stale.length + ')'); return { candidates: stale, source: 'skinport-stale' }; }
+    console.log('[skinport] cooling — no stale data');
+    return { candidates: [], source: 'skinport-cooling' };
+  }
+
   const minUsd = minPriceCents / 100;
   const maxUsd = maxPriceCents / 100;
-
   console.log('[skinport] fetching $' + minUsd + '-$' + maxUsd + '...');
 
   return new Promise((resolve) => {
@@ -141,32 +165,36 @@ async function skinportListings(minPriceCents, maxPriceCents) {
     const opts = {
       hostname: 'api.skinport.com',
       path: '/v1/items?app_id=730&currency=USD&tradable=0',
-      headers: { 'Accept-Encoding': 'br', 'Accept': 'application/json', 'User-Agent': 'CS2-Scanner/1.0' }
+      headers: { 'Accept-Encoding': 'gzip, br', 'Accept': 'application/json', 'User-Agent': 'CS2-Scanner/1.0' }
     };
     https.get(opts, (res) => {
-      console.log('[skinport] status=' + res.statusCode + ' encoding=' + (res.headers['content-encoding'] || 'none'));
-      if (res.statusCode !== 200) {
-        console.log('[skinport] non-200 response — aborting');
+      const enc = res.headers['content-encoding'] || 'none';
+      console.log('[skinport] status=' + res.statusCode + ' encoding=' + enc);
+
+      if (res.statusCode === 429) {
+        spTracker.trigger429();
         res.resume();
-        resolve([]);
+        const stale = getCached(staleKey, SP_STALE_TTL);
+        resolve({ candidates: stale || [], source: 'skinport-cooling' });
         return;
       }
-      let stream = res;
-      const enc = res.headers['content-encoding'];
-      if (enc === 'br') {
-        stream = res.pipe(zlib.createBrotliDecompress());
-      } else if (enc === 'gzip' || enc === 'deflate') {
-        stream = res.pipe(zlib.createGunzip());
+      if (res.statusCode !== 200) {
+        console.log('[skinport] non-200:', res.statusCode); res.resume();
+        resolve({ candidates: [], source: 'skinport-error' }); return;
       }
+
+      let stream = res;
+      if (enc === 'br') stream = res.pipe(zlib.createBrotliDecompress());
+      else if (enc === 'gzip' || enc === 'deflate') stream = res.pipe(zlib.createGunzip());
+
       let body = '';
       stream.on('data', c => body += c);
       stream.on('end', () => {
         try {
           const arr = JSON.parse(body);
           if (!Array.isArray(arr)) {
-            console.log('[skinport] unexpected response shape:', JSON.stringify(arr).slice(0, 200));
-            resolve([]);
-            return;
+            console.log('[skinport] unexpected shape:', JSON.stringify(arr).slice(0, 200));
+            resolve({ candidates: [], source: 'skinport-error' }); return;
           }
           const candidates = arr
             .filter(i => i.min_price != null && i.min_price >= minUsd && i.min_price <= maxUsd && i.quantity > 0)
@@ -177,17 +205,52 @@ async function skinportListings(minPriceCents, maxPriceCents) {
               quantity: i.quantity,
               url: i.item_page
             }));
-          setCache(key, candidates);
-          console.log('[skinport] ' + arr.length + ' total, ' + candidates.length + ' in $' + minUsd + '-$' + maxUsd + ' range');
-          resolve(candidates);
+          setCache(freshKey, candidates);
+          setCache(staleKey, candidates);
+          console.log('[skinport] ' + arr.length + ' total, ' + candidates.length + ' in range');
+          resolve({ candidates, source: 'skinport' });
         } catch(e) {
-          console.log('[skinport parse error]', e.message, '| body preview:', body.slice(0, 100));
-          resolve([]);
+          console.log('[skinport parse error]', e.message, '| body:', body.slice(0, 100));
+          resolve({ candidates: [], source: 'skinport-error' });
         }
       });
-      stream.on('error', e => { console.log('[skinport stream error]', e.message); resolve([]); });
-    }).on('error', e => { console.log('[skinport error]', e.message); resolve([]); });
+      stream.on('error', e => { console.log('[skinport stream error]', e.message); resolve({ candidates: [], source: 'skinport-error' }); });
+    }).on('error', e => { console.log('[skinport error]', e.message); resolve({ candidates: [], source: 'skinport-error' }); });
   });
+}
+
+// ─── CSFloat broad scan (fallback when Skinport is cooling) ──────────────────
+async function csfloatBroadScan(minPriceCents, maxPriceCents) {
+  const cacheKey = 'cf_broad:' + minPriceCents + ':' + maxPriceCents;
+  const cached = getCached(cacheKey, 10 * 60 * 1000);
+  if (cached) { console.log('[csfloat] broad scan cache hit'); return { candidates: cached, source: 'csfloat-scan' }; }
+  if (cfloat.isCooling() || !cfloat.canCall()) { console.log('[csfloat] broad scan skipped — cooling or throttled'); return null; }
+  const apiUrl = 'https://csfloat.com/api/v1/listings?min_price=' + minPriceCents + '&max_price=' + maxPriceCents + '&limit=50&sort_by=lowest_price&type=buy_now';
+  console.log('[csfloat] broad scan $' + minPriceCents/100 + '-$' + maxPriceCents/100);
+  try {
+    const data = await fetchCSFloat(apiUrl);
+    cfloat.record();
+    const listings = data.data || data || [];
+    const byName = {};
+    listings.forEach(l => {
+      const name = l.item && l.item.market_hash_name ? l.item.market_hash_name : null;
+      if (!name) return;
+      if (!byName[name] || l.price < byName[name].price) byName[name] = l;
+    });
+    const candidates = Object.values(byName).map(l => ({
+      name: l.item.market_hash_name,
+      skinportPrice: l.price,
+      suggestedPrice: 0,
+      quantity: 1,
+      url: 'https://csfloat.com/item/' + l.id
+    }));
+    setCache(cacheKey, candidates);
+    console.log('[csfloat] broad scan: ' + candidates.length + ' unique items');
+    return { candidates, source: 'csfloat-scan' };
+  } catch(e) {
+    console.log('[csfloat broad scan error]', e.message);
+    return null;
+  }
 }
 
 // ─── CSFloat validation (cooldown-aware, no aggressive retry) ─────────────────
@@ -237,7 +300,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname === '/api/budget') {
       res.writeHead(200);
-      res.end(JSON.stringify(cfloat.status()));
+      res.end(JSON.stringify({ csfloat: cfloat.status(), skinport: spTracker.status() }));
       return;
     }
 
@@ -251,9 +314,21 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/scan') {
       const minPrice = parseFloat(query.min_price || '5000');
       const maxPrice = parseFloat(query.max_price || '300000');
-      const data = await skinportListings(minPrice, maxPrice);
+      const spResult = await skinportListings(minPrice, maxPrice);
+      if (spResult.candidates.length > 0) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ candidates: spResult.candidates, source: spResult.source }));
+        return;
+      }
+      console.log('[scan] Skinport unavailable — trying CSFloat broad scan');
+      const cfResult = await csfloatBroadScan(minPrice, maxPrice);
+      if (cfResult) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ candidates: cfResult.candidates, source: cfResult.source }));
+        return;
+      }
       res.writeHead(200);
-      res.end(JSON.stringify(data));
+      res.end(JSON.stringify({ candidates: [], source: spResult.source }));
       return;
     }
 
