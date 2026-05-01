@@ -238,6 +238,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div class="sg-group"><label>Pattern-based skins</label><select id="cfg-patterns"><option value="no">Exclude</option><option value="warn">Include with warning</option></select></div>
       <div class="sg-group"><label>Min liquidity</label><select id="cfg-liquidity"><option value="high">High only</option><option value="medium" selected>Medium or higher</option><option value="low">All</option></select></div>
       <div class="sg-group"><label>Sound alerts</label><select id="cfg-sound"><option value="on">Enabled</option><option value="off">Disabled</option></select></div>
+      <div class="sg-group"><label>USD → CAD rate</label><input type="number" id="cfg-cadRate" value="1.37" min="1" max="2" step="0.01"></div>
     </div>
   </div>
 
@@ -262,6 +263,7 @@ var scanning=false, scanTimer=null, scanCount=0;
 var allDeals=[], dealHistory=[], watchlist=[], audioCtx=null;
 var cfCooling=false;
 var validationQueue=[];
+var USD_TO_CAD=1.37;
 
 var PATTERN_KEYS=['Case Hardened','Fade','Marble Fade','Doppler','Gamma Doppler','Tiger Tooth','Crimson Web','Lore','Emerald','Ruby','Sapphire','Black Pearl','Slaughter'];
 var ILLIQUID_KEYS=['Souvenir','Music Kit','Pin','Patch','Graffiti','Sticker','Agent'];
@@ -309,6 +311,21 @@ function calcSkinportProfit(candidate,feeP,slippageP){
   var netProfit=resaleAfterSlip-feeAmt-buyPrice;
   var profitPct=(netProfit/buyPrice)*100;
   return{resaleTarget,slippageAmt,feeAmt,netProfit,profitPct,isEstimate:true};
+}
+
+// Profit calc for validated deals: Skinport buy (CAD) vs CSFloat resale (USD→CAD)
+function calcRealProfitCAD(ladder,buyPriceCAD,cadRate,feeP,slippageP){
+  if(!ladder||ladder.length<2)return null;
+  var sorted=ladder.slice().sort(function(a,b){return a.price-b.price;});
+  var competitorCAD=(sorted[1].price/100)*cadRate;
+  var resaleTarget=competitorCAD*0.99;
+  var slippageAmt=resaleTarget*slippageP;
+  var resaleAfterSlip=resaleTarget-slippageAmt;
+  var feeAmt=resaleAfterSlip*feeP;
+  var netProfit=resaleAfterSlip-feeAmt-buyPriceCAD;
+  var profitPct=(netProfit/buyPriceCAD)*100;
+  var sensitivity=(resaleTarget*0.01)/Math.max(0.01,Math.abs(netProfit));
+  return{resaleTarget,slippageAmt,feeAmt,netProfit,profitPct,sensitivity};
 }
 
 function buildWarnings(deal,ladder,profit){
@@ -434,6 +451,7 @@ async function runScan(){
   var inclPat=cfgVal('patterns')==='warn';
   var minLiq=cfgVal('liquidity');
   var liqRank={'high':3,'medium':2,'low':1};
+  var cadRate=parseFloat(cfgVal('cadRate'))||USD_TO_CAD;
 
   scanCount++;
   document.getElementById('sRuns').textContent=scanCount;
@@ -487,10 +505,10 @@ async function runScan(){
         var ladder=vData.data||[];
         if(!ladder||ladder.length<2){addLog('No ladder: '+c.name);validatedCount++;continue;}
         ladder.sort(function(a,b){return a.price-b.price;});
-        var buyPrice=ladder[0].price/100;
-        var next1=ladder[1].price/100;
+        var buyPrice=c.skinportPrice/100; // Skinport buy price in CAD
+        var next1=(ladder[1].price/100)*cadRate; // CSFloat 2nd cheapest converted to CAD
         var gapPct=((next1-buyPrice)/buyPrice)*100;
-        var profit=calcRealProfit(ladder,buyPrice,feeP,slippageP);
+        var profit=calcRealProfitCAD(ladder,buyPrice,cadRate,feeP,slippageP);
         if(!profit){validatedCount++;continue;}
         var liq=calcLiquidity(c.name,ladder.length);
         if(liqRank[liq]<liqRank[minLiq]){validatedCount++;continue;}
@@ -520,7 +538,7 @@ async function runScan(){
 
     document.getElementById('sDeals').textContent=allDeals.filter(function(d){return d.validated;}).length;
     var bestV=allDeals.filter(function(d){return d.validated&&d.profit;}).sort(function(a,b){return b.profit.netProfit-a.profit.netProfit;});
-    if(bestV.length)document.getElementById('sProfit').textContent='$'+bestV[0].profit.netProfit.toFixed(0);
+    if(bestV.length)document.getElementById('sProfit').textContent='CA$'+bestV[0].profit.netProfit.toFixed(0);
 
     if(validatedCount>0){showAlert(validatedCount+' deal'+(validatedCount>1?'s':'')+' validated!');playSound();}
     renderDeals();
@@ -592,11 +610,11 @@ function dealHTML(d){
       +'<div class="deal-score-badge"><div class="score-num unval">~</div><div class="score-lbl">Estimate</div></div></div>'
       +'<div class="net-profit-bar unvalidated">'
       +'<div><div class="np-label">'+(p?'Skinport-only estimate — not confirmed by CSFloat':'No suggested price data — CSFloat validation required')+'</div></div>'
-      +'<div><span class="np-value">~$'+estProfit+'</span><span class="np-pct">~'+(p?p.profitPct.toFixed(1):'?')+'% ROI</span></div></div>'
+      +'<div><span class="np-value">~CA$'+estProfit+'</span><span class="np-pct">~'+(p?p.profitPct.toFixed(1):'?')+'% ROI</span></div></div>'
       +(warns?'<div class="warnings">'+warns+'</div>':'')
       +'<div class="profit-grid">'
-      +'<div class="profit-cell"><div class="pc-lbl">Skinport price</div><div class="pc-val">$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
-      +'<div class="profit-cell"><div class="pc-lbl">Suggested price</div><div class="pc-val">$'+(d.suggestedPrice?( d.suggestedPrice/100).toFixed(2):'?')+'</div></div>'
+      +'<div class="profit-cell"><div class="pc-lbl">Skinport price</div><div class="pc-val">CA$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
+      +'<div class="profit-cell"><div class="pc-lbl">Suggested price</div><div class="pc-val">CA$'+(d.suggestedPrice?( d.suggestedPrice/100).toFixed(2):'?')+'</div></div>'
       +'<div class="profit-cell"><div class="pc-lbl">Discount</div><div class="pc-val a">'+disc+'%</div></div>'
       +'</div>'
       +'<div class="review-bar">'
@@ -608,11 +626,12 @@ function dealHTML(d){
 
   // Validated card
   var sc=d.score>=80?'strong':d.score>=60?'maybe':'weak';
+  var cadR=parseFloat(document.getElementById('cfg-cadRate')?document.getElementById('cfg-cadRate').value:USD_TO_CAD)||USD_TO_CAD;
   var rows=(d.ladder||[]).map(function(l,i){
-    var price=(l.price/100).toFixed(2);
+    var price=((l.price/100)*cadR).toFixed(2);
     var gap=i>0?' (+'+((((l.price/100)-d.buyPrice)/d.buyPrice)*100).toFixed(1)+'%)':'';
     var fv=l.item&&l.item.float_value?'<span class="lr-float">'+l.item.float_value.toFixed(4)+'</span>':'';
-    return'<div class="ladder-row'+(i===0?' target':'')+'"><span class="lr-rank">#'+(i+1)+'</span><span class="lr-price">$'+price+'</span><span class="lr-gap">'+(i===0?'buy':gap)+'</span>'+fv+'</div>';
+    return'<div class="ladder-row'+(i===0?' target':'')+'"><span class="lr-rank">#'+(i+1)+'</span><span class="lr-price">CA$'+price+'</span><span class="lr-gap">'+(i===0?'buy':gap)+'</span>'+fv+'</div>';
   }).join('');
   var warns=(d.warnings||[]).map(function(w){return'<div class="warning '+w.type+'">'+esc(w.msg)+'</div>';}).join('');
   var scoreLabel=d.score>=80?'Strong':d.score>=60?'Maybe':'Weak';
@@ -622,14 +641,14 @@ function dealHTML(d){
     +'<div class="deal-score-badge"><div class="score-num '+sc+'">'+(d.score||'?')+'</div><div class="score-lbl">'+scoreLabel+'</div></div></div>'
     +(rows?'<div class="ladder"><div class="ladder-title">Price ladder ('+d.ladderCount+' listings)</div><div class="ladder-rows">'+rows+'</div></div>':'')
     +'<div class="profit-grid">'
-    +'<div class="profit-cell"><div class="pc-lbl">Buy price</div><div class="pc-val">$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
+    +'<div class="profit-cell"><div class="pc-lbl">Buy (Skinport)</div><div class="pc-val">CA$'+(d.buyPrice?d.buyPrice.toFixed(2):'?')+'</div></div>'
     +'<div class="profit-cell"><div class="pc-lbl">Gap to #2</div><div class="pc-val g">+'+(d.gapPct?d.gapPct.toFixed(1):'?')+'%</div></div>'
-    +'<div class="profit-cell"><div class="pc-lbl">Resale target</div><div class="pc-val">$'+(p?p.resaleTarget.toFixed(2):'?')+'</div></div>'
-    +'<div class="profit-cell"><div class="pc-lbl">Fees+Slippage</div><div class="pc-val r">-$'+(p?(p.feeAmt+p.slippageAmt).toFixed(2):'?')+'</div></div>'
+    +'<div class="profit-cell"><div class="pc-lbl">Resale target</div><div class="pc-val">CA$'+(p?p.resaleTarget.toFixed(2):'?')+'</div></div>'
+    +'<div class="profit-cell"><div class="pc-lbl">Fees+Slippage</div><div class="pc-val r">-CA$'+(p?(p.feeAmt+p.slippageAmt).toFixed(2):'?')+'</div></div>'
     +'</div>'
     +'<div class="net-profit-bar validated">'
-    +'<div><div class="np-label">Net profit after fees &amp; slippage (CSFloat validated)</div></div>'
-    +'<div><span class="np-value">$'+(p?p.netProfit.toFixed(2):'?')+'</span>'
+    +'<div><div class="np-label">Net profit after fees &amp; slippage (CSFloat validated, all CA$)</div></div>'
+    +'<div><span class="np-value">CA$'+(p?p.netProfit.toFixed(2):'?')+'</span>'
     +'<span class="np-pct">'+(p?p.profitPct.toFixed(1):'?')+'% ROI</span></div></div>'
     +(warns?'<div class="warnings">'+warns+'</div>':'')
     +'<div class="review-bar">'
@@ -645,6 +664,7 @@ async function validateNow(name,safeId){
   if(cfCooling){addLog('CSFloat still cooling — cannot validate now','w');return;}
   addLog('Manual validation: '+name,'i');
   var feeP=cfgVal('fee')/100,slippageP=cfgVal('slippage')/100,depth=parseInt(cfgVal('depth'));
+  var cadRate=parseFloat(cfgVal('cadRate'))||USD_TO_CAD;
   try{
     var res=await fetch('/api/validate?market_hash_name='+encodeURIComponent(name)+'&depth='+depth);
     var data=await res.json();
@@ -653,11 +673,12 @@ async function validateNow(name,safeId){
     if(data.throttled){addLog('CSFloat throttled — try again in a moment','w');return;}
     var ladder=data.data||[];
     if(!ladder||ladder.length<2){addLog('No CSFloat ladder data for '+name,'w');return;}
+    var spCandidate=validationQueue.find(function(q){return q.name===name;})||allDeals.find(function(d){return d.name===name;});
     ladder.sort(function(a,b){return a.price-b.price;});
-    var buyPrice=ladder[0].price/100;
-    var next1=ladder[1].price/100;
+    var buyPrice=spCandidate?(spCandidate.skinportPrice/100):((ladder[0].price/100)*cadRate);
+    var next1=(ladder[1].price/100)*cadRate;
     var gapPct=((next1-buyPrice)/buyPrice)*100;
-    var profit=calcRealProfit(ladder,buyPrice,feeP,slippageP);
+    var profit=calcRealProfitCAD(ladder,buyPrice,cadRate,feeP,slippageP);
     if(!profit)return;
     var liq=calcLiquidity(name,ladder.length);
     var deal={id:'mv'+Date.now(),name,buyPrice,next1,gapPct,liquidity:liq,ladderCount:ladder.length,ladder:ladder.slice(0,8),profit,validated:true,fromCache:data.fromCache,warnings:[],reviewState:null,timestamp:Date.now()};
@@ -700,7 +721,7 @@ function renderHistory(){
   var c=document.getElementById('histContainer');
   if(!dealHistory.length){c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>No reviewed deals yet</p></div>';return;}
   var rows=dealHistory.map(function(h){
-    var net=h.profit?'$'+h.profit.netProfit.toFixed(2):'—';
+    var net=h.profit?'CA$'+h.profit.netProfit.toFixed(2):'—';
     var roi=h.profit?h.profit.profitPct.toFixed(1)+'%':'—';
     var valTag=h.validated?'<span style="color:var(--green);font-size:11px">validated</span>':'<span style="color:var(--blue);font-size:11px">estimate</span>';
     return'<tr><td>'+esc(h.name)+'</td><td>$'+(h.buyPrice?h.buyPrice.toFixed(2):'—')+'</td><td>'+net+'</td><td>'+roi+'</td><td>'+valTag+'</td>'

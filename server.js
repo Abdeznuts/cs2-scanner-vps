@@ -112,8 +112,8 @@ const spCooldown = {
 };
 
 async function skinportScan(minPriceCents, maxPriceCents) {
-  const freshKey = 'sp_t1:' + minPriceCents + ':' + maxPriceCents;
-  const staleKey = 'sp_t1_stale:' + minPriceCents + ':' + maxPriceCents;
+  const freshKey = 'sp_cad:' + minPriceCents + ':' + maxPriceCents;
+  const staleKey = 'sp_cad_stale:' + minPriceCents + ':' + maxPriceCents;
 
   const fresh = getCached(freshKey, SP_FRESH_TTL);
   if (fresh) { console.log('[skinport] cache hit ' + fresh.length); return { candidates: fresh, cached: true }; }
@@ -131,7 +131,7 @@ async function skinportScan(minPriceCents, maxPriceCents) {
   return new Promise(resolve => {
     https.get({
       hostname: 'api.skinport.com',
-      path: '/v1/items?app_id=730&currency=USD&tradable=1',
+      path: '/v1/items?app_id=730&currency=CAD&tradable=1',
       headers: { 'Accept-Encoding': 'gzip, br', 'Accept': 'application/json', 'User-Agent': 'CS2-Scanner/1.0' }
     }, res => {
       const enc = res.headers['content-encoding'] || 'none';
