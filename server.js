@@ -144,31 +144,44 @@ async function skinportListings(minPriceCents, maxPriceCents) {
       headers: { 'Accept-Encoding': 'br', 'Accept': 'application/json', 'User-Agent': 'CS2-Scanner/1.0' }
     };
     https.get(opts, (res) => {
+      console.log('[skinport] status=' + res.statusCode + ' encoding=' + (res.headers['content-encoding'] || 'none'));
+      if (res.statusCode !== 200) {
+        console.log('[skinport] non-200 response — aborting');
+        res.resume();
+        resolve([]);
+        return;
+      }
       let stream = res;
-      if (res.headers['content-encoding'] === 'br') {
+      const enc = res.headers['content-encoding'];
+      if (enc === 'br') {
         stream = res.pipe(zlib.createBrotliDecompress());
+      } else if (enc === 'gzip' || enc === 'deflate') {
+        stream = res.pipe(zlib.createGunzip());
       }
       let body = '';
       stream.on('data', c => body += c);
       stream.on('end', () => {
         try {
           const arr = JSON.parse(body);
-          const items = Array.isArray(arr) ? arr : [];
-          const candidates = items
-            .filter(i => i.min_price >= minUsd && i.min_price <= maxUsd && i.quantity > 0)
+          if (!Array.isArray(arr)) {
+            console.log('[skinport] unexpected response shape:', JSON.stringify(arr).slice(0, 200));
+            resolve([]);
+            return;
+          }
+          const candidates = arr
+            .filter(i => i.min_price != null && i.min_price >= minUsd && i.min_price <= maxUsd && i.quantity > 0)
             .map(i => ({
               name: i.market_hash_name,
-              // Convert to cents so client-side buyPrice = skinportPrice / 100 is correct
               skinportPrice: Math.round(i.min_price * 100),
               suggestedPrice: Math.round((i.suggested_price || i.median_sale_price || 0) * 100),
               quantity: i.quantity,
               url: i.item_page
             }));
           setCache(key, candidates);
-          console.log('[skinport] ' + items.length + ' total, ' + candidates.length + ' in range');
+          console.log('[skinport] ' + arr.length + ' total, ' + candidates.length + ' in $' + minUsd + '-$' + maxUsd + ' range');
           resolve(candidates);
         } catch(e) {
-          console.log('[skinport parse error]', e.message);
+          console.log('[skinport parse error]', e.message, '| body preview:', body.slice(0, 100));
           resolve([]);
         }
       });
