@@ -23,7 +23,7 @@ const spTracker = {
   isCooling() { return Date.now() < this.cooldownUntil; },
   status() {
     const cooling = this.isCooling();
-    return { cooling, cooldownEndsAt: cooling ? new Date(this.cooldownUntil).toLocaleTimeString() : null };
+    return { cooling, cooldownUntilMs: this.cooldownUntil, cooldownEndsAt: cooling ? new Date(this.cooldownUntil).toLocaleTimeString() : null };
   }
 };
 
@@ -223,7 +223,7 @@ async function skinportListings(minPriceCents, maxPriceCents) {
 async function csfloatBroadScan(minPriceCents, maxPriceCents) {
   const cacheKey = 'cf_broad:' + minPriceCents + ':' + maxPriceCents;
   const cached = getCached(cacheKey, 10 * 60 * 1000);
-  if (cached) { console.log('[csfloat] broad scan cache hit'); return { candidates: cached, source: 'csfloat-scan' }; }
+  if (cached) { console.log('[csfloat] broad scan cache hit'); return { candidates: cached, source: 'csfloat-scan-cached' }; }
   if (cfloat.isCooling() || !cfloat.canCall()) { console.log('[csfloat] broad scan skipped — cooling or throttled'); return null; }
   const apiUrl = 'https://csfloat.com/api/v1/listings?min_price=' + minPriceCents + '&max_price=' + maxPriceCents + '&limit=50&sort_by=lowest_price&type=buy_now';
   console.log('[csfloat] broad scan $' + minPriceCents/100 + '-$' + maxPriceCents/100);
