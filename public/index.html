@@ -262,8 +262,6 @@ var scanning=false, scanTimer=null, scanCount=0;
 var allDeals=[], dealHistory=[], watchlist=[], audioCtx=null;
 var cfCooling=false;
 var validationQueue=[];
-var spCache={data:null,timestamp:0};
-var SP_CACHE_TTL=15*60*1000;
 
 var PATTERN_KEYS=['Case Hardened','Fade','Marble Fade','Doppler','Gamma Doppler','Tiger Tooth','Crimson Web','Lore','Emerald','Ruby','Sapphire','Black Pearl','Slaughter'];
 var ILLIQUID_KEYS=['Souvenir','Music Kit','Pin','Patch','Graffiti','Sticker','Agent'];
@@ -403,33 +401,19 @@ async function updateCFStatus(){
 }
 
 async function fetchSkinportDirect(minVal,maxVal){
-  var now=Date.now();
-  if(spCache.data&&(now-spCache.timestamp)<SP_CACHE_TTL){
-    var age=Math.round((now-spCache.timestamp)/60000);
-    addLog('Skinport cache hit ('+age+'min old)');
-    return filterSpItems(spCache.data,minVal,maxVal);
-  }
   addLog('Fetching Skinport...','i');
   try{
-    var res=await fetch('https://api.skinport.com/v1/items?app_id=730&currency=USD&tradable=0',{headers:{'Accept':'application/json'}});
-    if(!res.ok){
-      addLog('Skinport HTTP '+res.status+(spCache.data?' — stale cache':''),'e');
-      return spCache.data?filterSpItems(spCache.data,minVal,maxVal):[];
-    }
-    var arr=await res.json();
-    if(!Array.isArray(arr)){addLog('Skinport: unexpected response','e');return spCache.data?filterSpItems(spCache.data,minVal,maxVal):[];}
-    spCache.data=arr;spCache.timestamp=now;
-    addLog('Skinport: '+arr.length+' items fetched');
-    return filterSpItems(arr,minVal,maxVal);
+    var res=await fetch('/api/scan?min_price='+Math.round(minVal*100)+'&max_price='+Math.round(maxVal*100));
+    var data=await res.json();
+    var candidates=data.candidates||(Array.isArray(data)?data:[]);
+    if(data.cached)addLog('Skinport: server cache hit ('+candidates.length+' candidates)');
+    else if(data.cooling)addLog('Skinport rate-limited — using stale data ('+candidates.length+')','w');
+    else addLog('Skinport: '+candidates.length+' candidates in range');
+    return candidates;
   }catch(e){
-    addLog('Skinport error: '+e.message+(spCache.data?' — stale cache':''),'e');
-    return spCache.data?filterSpItems(spCache.data,minVal,maxVal):[];
+    addLog('Skinport error: '+e.message,'e');
+    return[];
   }
-}
-
-function filterSpItems(arr,minVal,maxVal){
-  return arr.filter(function(i){return i.min_price!=null&&i.min_price>=minVal&&i.min_price<=maxVal&&i.quantity>0;})
-    .map(function(i){return{name:i.market_hash_name,skinportPrice:Math.round(i.min_price*100),suggestedPrice:Math.round((i.suggested_price||i.median_sale_price||0)*100),quantity:i.quantity,url:i.item_page};});
 }
 
 async function resetCooldown(){
@@ -475,7 +459,6 @@ async function runScan(){
       return db-da;
     });
     document.getElementById('sCandidates').textContent=filtered.length;
-    addLog('Skinport: '+filtered.length+' candidates in range');
 
     // Step 2: Merge new candidates into the persistent validation queue
     filtered.forEach(function(c){

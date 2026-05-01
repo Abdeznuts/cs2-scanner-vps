@@ -101,6 +101,75 @@ function fetchCSFloat(apiUrl) {
   });
 }
 
+// ─── Skinport proxy (server-side, 20-min cache, stale fallback on 429) ───────
+const SP_FRESH_TTL = 20 * 60 * 1000;
+const SP_STALE_TTL = 3 * 60 * 60 * 1000;
+const spCooldown = {
+  until: 0,
+  trigger() { this.until = Date.now() + 20 * 60 * 1000; console.log('[skinport] 429 — cooldown 20min'); },
+  active() { return Date.now() < this.until; }
+};
+
+async function skinportScan(minPriceCents, maxPriceCents) {
+  const freshKey = 'sp:' + minPriceCents + ':' + maxPriceCents;
+  const staleKey = 'sp_stale:' + minPriceCents + ':' + maxPriceCents;
+
+  const fresh = getCached(freshKey, SP_FRESH_TTL);
+  if (fresh) { console.log('[skinport] cache hit ' + fresh.length); return { candidates: fresh, cached: true }; }
+
+  if (spCooldown.active()) {
+    const stale = getCached(staleKey, SP_STALE_TTL);
+    console.log('[skinport] cooling — ' + (stale ? 'stale data ' + stale.length : 'empty'));
+    return { candidates: stale || [], cooling: true };
+  }
+
+  const minUsd = minPriceCents / 100;
+  const maxUsd = maxPriceCents / 100;
+  console.log('[skinport] fetching $' + minUsd + '-$' + maxUsd);
+
+  return new Promise(resolve => {
+    const zlib = require('zlib');
+    https.get({
+      hostname: 'api.skinport.com',
+      path: '/v1/items?app_id=730&currency=USD&tradable=0',
+      headers: { 'Accept-Encoding': 'gzip, br', 'Accept': 'application/json', 'User-Agent': 'CS2-Scanner/1.0' }
+    }, res => {
+      const enc = res.headers['content-encoding'] || 'none';
+      console.log('[skinport] ' + res.statusCode + ' ' + enc);
+      if (res.statusCode === 429) {
+        spCooldown.trigger(); res.resume();
+        const stale = getCached(staleKey, SP_STALE_TTL);
+        resolve({ candidates: stale || [], cooling: true }); return;
+      }
+      if (res.statusCode !== 200) { res.resume(); resolve({ candidates: [], error: res.statusCode }); return; }
+      let stream = res;
+      if (enc === 'br') stream = res.pipe(zlib.createBrotliDecompress());
+      else if (enc === 'gzip' || enc === 'deflate') stream = res.pipe(zlib.createGunzip());
+      let body = '';
+      stream.on('data', c => body += c);
+      stream.on('end', () => {
+        try {
+          const arr = JSON.parse(body);
+          if (!Array.isArray(arr)) { resolve({ candidates: [], error: 'unexpected shape' }); return; }
+          const candidates = arr
+            .filter(i => i.min_price != null && i.min_price >= minUsd && i.min_price <= maxUsd && i.quantity > 0)
+            .map(i => ({
+              name: i.market_hash_name,
+              skinportPrice: Math.round(i.min_price * 100),
+              suggestedPrice: Math.round((i.suggested_price || i.median_sale_price || 0) * 100),
+              quantity: i.quantity
+            }));
+          setCache(freshKey, candidates);
+          setCache(staleKey, candidates);
+          console.log('[skinport] ' + arr.length + ' total, ' + candidates.length + ' in range');
+          resolve({ candidates, cached: false });
+        } catch(e) { resolve({ candidates: [], error: e.message }); }
+      });
+      stream.on('error', e => resolve({ candidates: [], error: e.message }));
+    }).on('error', e => resolve({ candidates: [], error: e.message }));
+  });
+}
+
 // ─── CSFloat ladder validation ────────────────────────────────────────────────
 async function csfloatLadder(marketHashName, limit) {
   const key = 'cf:' + marketHashName;
@@ -150,6 +219,15 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
   try {
+    if (pathname === '/api/scan') {
+      const minPrice = parseFloat(query.min_price || '10000');
+      const maxPrice = parseFloat(query.max_price || '300000');
+      const result = await skinportScan(minPrice, maxPrice);
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+      return;
+    }
+
     if (pathname === '/api/budget') {
       res.writeHead(200);
       res.end(JSON.stringify(cfloat.status()));
