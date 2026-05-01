@@ -168,6 +168,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .sp-line.ok::before{content:'✓';color:var(--green)}
 .sp-line.warn::before{content:'⚠';color:var(--amber)}
 .sp-line.info::before{content:'·';color:var(--text3)}
+.sp-prev{font-size:11px;color:var(--text3);margin-top:4px;opacity:0.7}
 /* Tier borders — color-coded for instant scanning */
 .tier-execute{border-left:4px solid #d4af37!important;background:rgba(212,175,55,0.03)!important}
 .tier-strong{border-left:4px solid var(--green)!important}
@@ -381,6 +382,8 @@ var closedTrades=[];
 var compactMode=false;
 var scanComplete=false;
 var lastScanSummary=null;
+var prevScanSummary=null;
+var prevScanNum=0;
 var whitelistMode=true;
 var lastWlHidden=0;
 
@@ -676,6 +679,7 @@ async function resetCooldown(){
 }
 
 var _spHideTimer=null;
+var _countdownTimer=null;
 function setScanStage(label,pct,count){
   var el=document.getElementById('scanProgress');
   if(el)el.style.display='block';
@@ -708,6 +712,28 @@ function endScanProgress(msg,hasDeals){
   // No deals: keep progress block visible — it IS the summary the user sees
 }
 
+function scheduleNextScan(){
+  if(!scanning)return;
+  clearTimeout(scanTimer);
+  clearInterval(_countdownTimer);
+  var iv=parseInt(document.getElementById('cfg-interval').value)*1000;
+  var remaining=Math.ceil(iv/1000);
+  addLog('Next scan in '+remaining+'s','i');
+  var spCnt=document.getElementById('spCount');
+  if(spCnt)spCnt.textContent='Next scan in '+remaining+'s';
+  _countdownTimer=setInterval(function(){
+    remaining--;
+    var el=document.getElementById('spCount');
+    if(remaining<=0){clearInterval(_countdownTimer);if(el)el.textContent='';return;}
+    if(el)el.textContent='Next scan in '+remaining+'s';
+  },1000);
+  scanTimer=setTimeout(function(){
+    clearInterval(_countdownTimer);
+    var el=document.getElementById('spCount');if(el)el.textContent='';
+    if(scanning)runScan();
+  },iv);
+}
+
 async function runScan(){
   var minVal=cfgVal('minValue'), maxVal=cfgVal('maxValue');
   var minProfit=cfgVal('minProfit'), minProfitPct=cfgVal('minProfitPct');
@@ -720,17 +746,22 @@ async function runScan(){
   var liqRank={'high':3,'medium':2,'low':1};
   var cadRate=parseFloat(cfgVal('cadRate'))||USD_TO_CAD;
 
+  prevScanSummary=lastScanSummary;
+  prevScanNum=scanCount;
   scanComplete=false;
   lastScanSummary=null;
   scanCount++;
   document.getElementById('sRuns').textContent=scanCount;
   setStatus('scanning...','scanning');
+  // Reset bar to animate fresh from 0
+  var _bf=document.getElementById('spFill');
+  if(_bf){_bf.style.transition='none';_bf.style.background='';_bf.style.width='0%';void _bf.offsetWidth;_bf.style.transition='';}
   await updateCFStatus();
-  addLog('Scan #'+scanCount+' — $'+minVal+'-$'+maxVal+(cfCooling?' [CSFloat cooling]':''),'i');
+  addLog('Scan #'+scanCount+' started — $'+minVal+'-$'+maxVal+(cfCooling?' [CSFloat cooling]':''),'i');
 
   // Reset progress feed
   var spFeed=document.getElementById('spFeed');if(spFeed)spFeed.innerHTML='';
-  setScanStage('Fetching Skinport listings…',8);
+  setScanStage('Scan #'+scanCount+' — Fetching listings…',8);
 
   try{
     // Step 1: Skinport
@@ -876,15 +907,17 @@ async function runScan(){
     if(buySignals.length){showAlert('BUY NOW signal: '+buySignals[0].name);playSound();}
     setStatus(allDeals.length+' deal'+(allDeals.length!==1?'s':''),allDeals.length>0?'active':'');
     var totalVisible=allDeals.filter(function(d){return d.validated||(d.profit&&d.profit.netProfit>=75);}).length;
-    endScanProgress('Scan complete — '+totalVisible+' qualified deal'+(totalVisible!==1?'s':''),totalVisible>0);
+    endScanProgress('Scan #'+scanCount+' complete — '+totalVisible+' qualified deal'+(totalVisible!==1?'s':''),totalVisible>0);
     addScanFeed('Done: '+validatedCount+' validated, '+validationQueue.length+' queued, '+totalVisible+' shown','ok');
     addLog('Done — '+validatedCount+' validated, '+validationQueue.length+' queued','s');
 
   }catch(err){
-    addLog('Error: '+err.message,'e');
+    addLog('Scan #'+scanCount+' error: '+err.message,'e');
     setStatus('error','error');
+  }finally{
+    await updateCFStatus();
+    scheduleNextScan();
   }
-  await updateCFStatus();
 }
 
 // ─── Missed deal tracking ─────────────────────────────────────────────────────
@@ -1169,7 +1202,8 @@ function renderDeals(){
     } else if(!scanning){
       c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Start scanning to find deals</p></div>';
     } else {
-      c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Scanning&#8230;</p></div>';
+      var _prevNote=prevScanSummary?'<p class="sp-prev">Previous: '+esc(prevScanSummary)+'</p>':'';
+      c.innerHTML='<div class="empty"><div class="icon">&#9675;</div><p>Scan #'+scanCount+' in progress&#8230;</p>'+_prevNote+'</div>';
     }
     return;
   }
@@ -1626,27 +1660,26 @@ function toggleWhitelist(){
   setWhitelistMode(newState);
 }
 
-function clearDeals(){allDeals=[];validationQueue=[];scanComplete=false;lastScanSummary=null;renderDeals();document.getElementById('sDeals').textContent=0;document.getElementById('sCandidates').textContent=0;document.getElementById('sQueue').textContent=0;document.getElementById('sWlHidden').textContent=0;document.getElementById('sProfit').textContent='—';}
+function clearDeals(){allDeals=[];validationQueue=[];scanComplete=false;lastScanSummary=null;prevScanSummary=null;prevScanNum=0;renderDeals();document.getElementById('sDeals').textContent=0;document.getElementById('sCandidates').textContent=0;document.getElementById('sQueue').textContent=0;document.getElementById('sWlHidden').textContent=0;document.getElementById('sProfit').textContent='—';}
 function clearHistory(){dealHistory=[];renderHistory();}
 
 function toggleScan(){
   var btn=document.getElementById('scanBtn'),lbl=document.getElementById('scanLabel');
   if(scanning){
-    scanning=false;clearTimeout(scanTimer);scanTimer=null;
+    scanning=false;
+    clearTimeout(scanTimer);scanTimer=null;
+    clearInterval(_countdownTimer);_countdownTimer=null;
     btn.classList.remove('danger');btn.classList.add('primary');
     lbl.textContent='Start scanning';
-    setStatus('paused','');addLog('Scanner paused');
+    setStatus('paused','');
+    addLog('Scanner stopped — next scan canceled');
     var spEl=document.getElementById('scanProgress');if(spEl)spEl.style.display='none';
   }else{
     scanning=true;
     btn.classList.remove('primary');btn.classList.add('danger');
     lbl.textContent='Stop scanning';
     addLog('Scanner started','i');
-    function next(){
-      var iv=parseInt(document.getElementById('cfg-interval').value)*1000;
-      scanTimer=setTimeout(function(){if(scanning)runScan().then(next);},iv);
-    }
-    runScan().then(next);
+    runScan();
   }
 }
 
